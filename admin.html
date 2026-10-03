@@ -1,0 +1,22 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>إدارة المستخدمين</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body data-require="admin" class="bg-gray-100 p-4"><div class="max-w-3xl mx-auto bg-white rounded-xl shadow p-4">
+<div class="flex justify-between mb-3"><h1 class="text-xl font-bold">إدارة المستخدمين والصلاحيات</h1><a href="index.html" class="text-blue-600">القائمة</a></div>
+<table class="w-full text-sm"><thead><tr class="text-right border-b"><th class="p-2">البريد</th><th>الاسم</th><th>الدور</th><th></th></tr></thead><tbody id="rows"></tbody></table>
+<p class="text-xs text-gray-500 mt-3">مشاهد: يقرأ فقط · محرر: يضيف ويعدّل · مدير: يحذف ويدير الأدوار · بانتظار الموافقة: لا يرى البيانات</p></div>
+<script type="module">
+import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getFirestore, collection, getDocs, doc, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { firebaseConfig } from "./firebase-config.js";
+const db = getFirestore(getApps().length ? getApp() : initializeApp(firebaseConfig));
+const roles = { pending: "بانتظار الموافقة", viewer: "مشاهد", editor: "محرر", admin: "مدير" }, tb = document.getElementById("rows");
+for (const d of (await getDocs(collection(db, "users"))).docs) {
+  const u = d.data(), tr = document.createElement("tr"); tr.className = "border-b";
+  const cell = (t) => { const td = document.createElement("td"); td.className = "p-2"; td.textContent = t; tr.appendChild(td); };
+  cell(u.email || ""); cell(u.displayName || "");
+  const sel = document.createElement("select"); sel.className = "border rounded p-1";
+  for (const [k, v] of Object.entries(roles)) { const o = new Option(v, k); o.selected = k === u.role; sel.add(o); }
+  const btn = document.createElement("button"); btn.textContent = "حفظ"; btn.className = "bg-blue-600 text-white rounded px-3 py-1";
+  btn.onclick = async () => { await updateDoc(doc(db, "users", d.id), { role: sel.value }); btn.textContent = "تم ✓"; };
+  const t1 = document.createElement("td"); t1.appendChild(sel); const t2 = document.createElement("td"); t2.appendChild(btn); tr.append(t1, t2); tb.appendChild(tr);
+}
+</script></body></html>

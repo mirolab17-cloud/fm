@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>قائمة العائلة</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css"/>
+  <style>
+    body{font-family:Inter, sans-serif;background:#f3f4f6;direction:rtl;text-align:right}
+    .container{max-width:1200px;margin:0 auto;padding:1.5rem}
+    .btn-primary{background:#4f46e5;color:#fff;padding:.75rem 1.5rem;border-radius:.75rem}
+    .btn-secondary{background:#e5e7eb;color:#374151;padding:.75rem 1.5rem;border-radius:.75rem}
+    .input-field{border:1px solid #d1d5db;padding:.75rem;border-radius:.75rem;width:100%;box-sizing:border-box}
+    .card{background:#fff;border-radius:1rem;box-shadow:0 4px 6px rgba(0,0,0,.1);padding:1.5rem}
+    .person-card{transition:transform .2s,box-shadow .2s;cursor:pointer;position:relative}
+    .person-card:hover{transform:translateY(-5px);box-shadow:0 10px 15px rgba(0,0,0,.15)}
+    .person-card.selected{border:2px solid #4f46e5}
+    .gender-male{background:#e0e7ff}
+    .gender-female{background:#ffe4e6}
+    .checkbox-container{position:absolute;top:.75rem;left:.75rem;z-index:5}
+    .suggestions-list{position:absolute;background:#fff;border:1px solid #d1d5db;border-radius:.5rem;max-height:150px;overflow:auto;width:100%;z-index:10}
+    .suggestions-list-item{padding:.75rem 1rem;cursor:pointer;border-bottom:1px solid #eee}
+    .modal{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,.4);justify-content:center;align-items:center}
+    .modal-content{background:#fff;padding:2rem;border-radius:1rem;width:90%;max-width:500px;text-align:center}
+    .spinner{border:4px solid rgba(0,0,0,0.1);border-left-color:#4f46e5;border-radius:50%;width:40px;height:40px;animation:spin 1s linear infinite;margin-bottom:1rem}
+    @keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+  </style>
+</head>
+<body data-require="viewer" class="bg-gray-100 p-4">
+  <div id="messageModal" class="modal"><div class="modal-content"><span id="closeMessageModalBtn" style="float:left;font-size:28px;cursor:pointer">&times;</span><p id="modalMessage" class="text-lg font-semibold mb-4"></p><button id="confirmMessageModalBtn" class="btn-primary">حسناً</button></div></div>
+  <div id="loadingModal" class="modal"><div class="modal-content"><div class="spinner"></div><p class="text-lg font-semibold">جارٍ تحميل البيانات...</p></div></div>
+
+  <div class="container">
+    <div class="flex flex-col md:flex-row justify-between items-center mb-6 p-4 bg-white rounded-xl shadow-md">
+      <h1 class="text-3xl font-bold text-gray-800 mb-4 md:mb-0">قائمة العائلة</h1>
+      <nav class="flex flex-wrap gap-3">
+        <a href="index.html" class="btn-primary">قائمة العائلة</a>
+        <a href="events.html" class="btn-secondary">الأحداث</a>
+        <a href="family_tree.html" class="btn-secondary">شجرة العائلة</a>
+        <a href="statistics.html" class="btn-secondary">الإحصائيات</a>
+<a href="export_data.html" class="btn-secondary">تصدير البيانات</a>
+<a href="add_edit_person.html" class="btn-secondary">إضافة شخص جديد</a>
+      </nav>
+    </div>
+
+    <!-- filters (kept similar to your original) -->
+    <div class="bg-white p-6 rounded-xl shadow-md mb-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+        <div class="col-span-full md:col-span-2">
+          <label class="block text-sm font-medium mb-1">بحث بالاسم أو رقم الهوية:</label>
+          <input id="searchInput" class="input-field" placeholder="ابحث عن اسم أو رقم هوية..."/>
+        </div>
+
+        <div><label class="block text-sm font-medium mb-1">الجنس:</label><select id="genderFilter" class="input-field"><option value="All">الكل</option><option value="Male">ذكر</option><option value="Female">أنثى</option></select></div>
+
+        <div><label class="block text-sm font-medium mb-1">الحالة الحياتية:</label><select id="lifeStatusFilter" class="input-field"><option value="All">الكل</option><option value="Alive">أحياء فقط</option><option value="Deceased">أموات فقط</option></select></div>
+
+        <div><label class="block text-sm font-medium mb-1">العمر من:</label><input id="ageMinFilter" type="number" class="input-field" placeholder="الحد الأدنى"/></div>
+        <div><label class="block text-sm font-medium mb-1">العمر إلى:</label><input id="ageMaxFilter" type="number" class="input-field" placeholder="الحد الأقصى"/></div>
+
+        <div><label class="block text-sm font-medium mb-1">لديه أب؟:</label><select id="hasFatherFilter" class="input-field"><option value="All">الكل</option><option value="Yes">نعم</option><option value="No">لا</option></select></div>
+        <div><label class="block text-sm font-medium mb-1">لديه أم؟:</label><select id="hasMotherFilter" class="input-field"><option value="All">الكل</option><option value="Yes">نعم</option><option value="No">لا</option></select></div>
+        <div><label class="block text-sm font-medium mb-1">لديه أبناء؟:</label><select id="hasChildrenFilter" class="input-field"><option value="All">الكل</option><option value="Yes">نعم</option><option value="No">لا</option></select></div>
+        <div><label class="block text-sm font-medium mb-1">لديه زوج/زوجة؟:</label><select id="hasSpouseFilter" class="input-field"><option value="All">الكل</option><option value="Yes">نعم</option><option value="No">لا</option></select></div>
+
+        <div class="col-span-full md:col-span-2">
+          <label class="block text-sm font-medium mb-1">عرض أبناء الأب:</label>
+          <div style="position:relative">
+            <input id="filterByFatherInput" class="input-field" placeholder="ابحث عن اسم الأب..."/>
+            <div id="filterByFatherSuggestions" class="suggestions-list hidden"></div>
+            <input type="hidden" id="filterByFatherId"/>
+          </div>
+        </div>
+
+        <div class="col-span-full md:col-span-2">
+          <label class="block text-sm font-medium mb-1">عرض أبناء الأم:</label>
+          <div style="position:relative">
+            <input id="filterByMotherInput" class="input-field" placeholder="ابحث عن اسم الأم..."/>
+            <div id="filterByMotherSuggestions" class="suggestions-list hidden"></div>
+            <input type="hidden" id="filterByMotherId"/>
+          </div>
+        </div>
+
+        <div class="col-span-full md:col-span-2">
+          <label class="block text-sm font-medium mb-1">عرض إخوة/أخوات الشخص:</label>
+          <div style="position:relative">
+            <input id="filterBySiblingInput" class="input-field" placeholder="ابحث عن اسم الأخ/الأخت..."/>
+            <div id="filterBySiblingSuggestions" class="suggestions-list hidden"></div>
+            <input type="hidden" id="filterBySiblingId"/>
+          </div>
+        </div>
+
+        <div class="col-span-full md:col-span-1 flex justify-end">
+          <button id="clearFiltersBtn" class="btn-secondary w-full md:w-auto">مسح الفلاتر</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-xl shadow-md mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+      <div>
+        <span>عدد الأشخاص المعروضين: <strong id="displayedCount">0</strong></span>
+        <span style="margin-left:1rem">المحدد: <strong id="selectedCount">0</strong> / <strong id="totalDisplayedCount">0</strong> (<strong id="totalFamilyCount">0</strong> إجمالي)</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <input type="checkbox" id="selectAllCheckbox" class="form-checkbox"/>
+        <label for="selectAllCheckbox">تحديد الكل (المعروض)</label>
+      </div>
+      <button id="exportExcelBtn" class="btn-primary">تصدير المحدد إلى Excel</button>
+    </div>
+
+    <div id="familyMembersGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+    <div id="noMembersMessage" class="text-center text-gray-600 text-lg mt-8 hidden"><i class="fas fa-info-circle"></i> لا يوجد أفراد عائلة مطابقون.</div>
+  </div>
+
+  <script type="module" src="auth-guard.js"></script>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { firebaseConfig } from "./firebase-config.js";
+import { session as __s } from "./lib.js";
+await __s();
+    import { getFirestore, collection, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const baseCollectionPath = 'familyMembers';
+
+    // state
+    let allFamilyMembers = [];
+    let displayedFamilyMembers = [];
+    let selectedPersonIds = new Set();
+
+    // dom refs
+    let familyMembersGrid, noMembersMessage, searchInput, genderFilter, lifeStatusFilter, ageMinFilter, ageMaxFilter;
+    let hasFatherFilter, hasMotherFilter, hasChildrenFilter, hasSpouseFilter;
+    let filterByFatherInput, filterByFatherSuggestions, filterByFatherId;
+    let filterByMotherInput, filterByMotherSuggestions, filterByMotherId;
+    let filterBySiblingInput, filterBySiblingSuggestions, filterBySiblingId;
+    let clearFiltersBtn, selectAllCheckbox, exportExcelBtn;
+    let messageModal, modalMessage, closeMessageModalBtn, confirmMessageModalBtn, loadingModal;
+    let displayedCountSpan, selectedCountSpan, totalDisplayedCountSpan, totalFamilyCountSpan;
+
+    function showModal(msg){ modalMessage.textContent = msg; messageModal.style.display = 'flex'; }
+    function closeModal(){ messageModal.style.display = 'none'; }
+    function showLoadingModal(){ loadingModal.style.display = 'flex'; }
+    function hideLoadingModal(){ loadingModal.style.display = 'none'; }
+    function calculateAge(birthDateTimestamp){
+      if (!birthDateTimestamp) return 'غير محدد';
+      const birth = birthDateTimestamp.toDate();
+      const today = new Date();
+      let age = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+      return age;
+    }
+
+    async function fetchFamilyMembers(){
+      showLoadingModal();
+      try {
+        const q = collection(db, baseCollectionPath);
+        const snap = await getDocs(q);
+        allFamilyMembers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        totalFamilyCountSpan.textContent = allFamilyMembers.length;
+        displayFamilyMembers();
+      } catch (err) {
+        console.error("fetchFamilyMembers error:", err);
+        showModal("حدث خطأ أثناء جلب بيانات العائلة: " + (err.message||err));
+      } finally { hideLoadingModal(); }
+    }
+
+    function handleRelatedPersonFilterInput(inputElement, suggestionsElement, hiddenIdElement){
+      if (!inputElement) return;
+      inputElement.addEventListener('input', ()=>{
+        const searchText = inputElement.value.toLowerCase();
+        suggestionsElement.innerHTML=''; suggestionsElement.classList.add('hidden'); hiddenIdElement.value='';
+        if (searchText.length < 2) return;
+        const filtered = allFamilyMembers.filter(p => p.fullName && p.fullName.toLowerCase().includes(searchText));
+        if (filtered.length) {
+          suggestionsElement.classList.remove('hidden');
+          filtered.forEach(person=>{
+            const div=document.createElement('div'); div.className='suggestions-list-item'; div.textContent = person.fullName;
+            div.addEventListener('click', ()=>{ inputElement.value = person.fullName; hiddenIdElement.value = person.id; suggestionsElement.classList.add('hidden'); displayFamilyMembers(); });
+            suggestionsElement.appendChild(div);
+          });
+        }
+      });
+      document.addEventListener('click', (ev)=>{ if (!inputElement.parentNode.contains(ev.target)) suggestionsElement.classList.add('hidden'); });
+    }
+
+    function displayFamilyMembers(){
+      familyMembersGrid.innerHTML=''; displayedFamilyMembers=[]; selectedPersonIds.clear(); selectAllCheckbox.checked=false;
+      const searchTerm = searchInput.value.toLowerCase();
+      const selectedGender = genderFilter.value;
+      const selectedLifeStatus = lifeStatusFilter.value;
+      const ageMin = parseInt(ageMinFilter.value); const ageMax = parseInt(ageMaxFilter.value);
+      const selectedHasFather = hasFatherFilter.value; const selectedHasMother = hasMotherFilter.value;
+      const selectedHasChildren = hasChildrenFilter.value; const selectedHasSpouse = hasSpouseFilter.value;
+      const filterByFatherIdValue = filterByFatherId ? filterByFatherId.value : '';
+      const filterByMotherIdValue = filterByMotherId ? filterByMotherId.value : '';
+      const filterBySiblingIdValue = filterBySiblingId ? filterBySiblingId.value : '';
+
+      const filtered = allFamilyMembers.filter(person=>{
+        const matchesSearch = !searchTerm || (person.fullName && person.fullName.toLowerCase().includes(searchTerm)) || (person.idNumber && person.idNumber.toLowerCase().includes(searchTerm)) || (person.allTags||[]).some(g=>g.toLowerCase().includes(searchTerm));
+        const matchesGender = selectedGender === 'All' || person.gender === selectedGender;
+        let matchesLife = true;
+        if (selectedLifeStatus === 'Alive') matchesLife = person.isAlive !== false;
+        if (selectedLifeStatus === 'Deceased') matchesLife = person.isAlive === false;
+        let matchesAge = true;
+        if (person.birthDate) {
+          const age = calculateAge(person.birthDate);
+          if (!isNaN(ageMin) && age < ageMin) matchesAge = false;
+          if (!isNaN(ageMax) && age > ageMax) matchesAge = false;
+        } else if (!isNaN(ageMin) || !isNaN(ageMax)) matchesAge = false;
+        let matchesHasFather = true; if (selectedHasFather==='Yes') matchesHasFather = !!person.fatherId; if (selectedHasFather==='No') matchesHasFather = !person.fatherId;
+        let matchesHasMother = true; if (selectedHasMother==='Yes') matchesHasMother = !!person.motherId; if (selectedHasMother==='No') matchesHasMother = !person.motherId;
+        let matchesHasChildren = true; if (selectedHasChildren==='Yes') matchesHasChildren = (person.childrenIds && person.childrenIds.length>0); if (selectedHasChildren==='No') matchesHasChildren = !(person.childrenIds && person.childrenIds.length>0);
+        let matchesHasSpouse = true; if (selectedHasSpouse==='Yes') matchesHasSpouse = (person.spouseIds && person.spouseIds.length>0) || (person.manualSpouseNames && person.manualSpouseNames.length>0); if (selectedHasSpouse==='No') matchesHasSpouse = !(person.spouseIds && person.spouseIds.length>0) && !(person.manualSpouseNames && person.manualSpouseNames.length>0);
+
+        let matchesFilterByFather = true; if (filterByFatherIdValue) matchesFilterByFather = person.fatherId === filterByFatherIdValue;
+        let matchesFilterByMother = true; if (filterByMotherIdValue) matchesFilterByMother = person.motherId === filterByMotherIdValue;
+        let matchesFilterBySibling = true;
+        if (filterBySiblingIdValue) {
+          const sibling = allFamilyMembers.find(p=>p.id===filterBySiblingIdValue);
+          if (sibling) {
+            const commonFather = person.fatherId && sibling.fatherId && person.fatherId === sibling.fatherId;
+            const commonMother = person.motherId && sibling.motherId && person.motherId === sibling.motherId;
+            matchesFilterBySibling = (commonFather || commonMother) && (person.id !== sibling.id);
+          } else matchesFilterBySibling = false;
+        }
+
+        return matchesSearch && matchesGender && matchesLife && matchesAge && matchesHasFather && matchesHasMother && matchesHasChildren && matchesHasSpouse && matchesFilterByFather && matchesFilterByMother && matchesFilterBySibling;
+      });
+
+      filtered.sort((a,b)=> (a.fullName||'').localeCompare(b.fullName||''));
+      if (filtered.length === 0) noMembersMessage.classList.remove('hidden'); else noMembersMessage.classList.add('hidden');
+
+      filtered.forEach(person=>{
+        displayedFamilyMembers.push(person);
+        const personCard = document.createElement('div'); personCard.className='person-card card p-4 rounded-xl shadow-md flex flex-col relative';
+        if (person.gender==='Male') personCard.classList.add('gender-male'); else if (person.gender==='Female') personCard.classList.add('gender-female');
+
+        const checkboxContainer = document.createElement('div'); checkboxContainer.className='checkbox-container';
+        const checkbox = document.createElement('input'); checkbox.type='checkbox'; checkbox.className='form-checkbox'; checkbox.id = `person-${person.id}`;
+        checkbox.addEventListener('change', ()=> {
+          if (checkbox.checked) { selectedPersonIds.add(person.id); personCard.classList.add('selected'); }
+          else { selectedPersonIds.delete(person.id); personCard.classList.remove('selected'); selectAllCheckbox.checked=false; }
+          updateCounts();
+        });
+        checkboxContainer.appendChild(checkbox); personCard.appendChild(checkboxContainer);
+
+        const contentDiv = document.createElement('div');
+        contentDiv.innerHTML = `<h2 class="text-xl font-semibold mb-2">${person.fullName||'غير محدد'}</h2>
+          <p class="text-gray-600 text-sm mb-1">العمر: ${calculateAge(person.birthDate)} سنة</p>
+          <p class="text-gray-600 text-sm mb-1">الجنس: ${person.gender==='Male'?'ذكر':(person.gender==='Female'?'أنثى':'غير محدد')}</p>
+          <p class="text-gray-600 text-sm">الحالة: ${person.isAlive!==false ? 'على قيد الحياة' : 'متوفى'}</p>`;
+        personCard.appendChild(contentDiv);
+
+        const viewProfileBtn = document.createElement('a'); viewProfileBtn.href = `profile.html?id=${person.id}`; viewProfileBtn.className='btn-secondary mt-4 block text-center'; viewProfileBtn.textContent='عرض الملف الشخصي';
+        personCard.appendChild(viewProfileBtn);
+
+        familyMembersGrid.appendChild(personCard);
+      });
+
+      updateCounts();
+    }
+
+    function updateCounts(){
+      displayedCountSpan.textContent = displayedFamilyMembers.length;
+      selectedCountSpan.textContent = selectedPersonIds.size;
+      totalDisplayedCountSpan.textContent = displayedFamilyMembers.length;
+      selectAllCheckbox.checked = displayedFamilyMembers.length>0 && displayedFamilyMembers.every(p=> selectedPersonIds.has(p.id));
+    }
+
+    document.addEventListener('DOMContentLoaded', async ()=>{
+      familyMembersGrid = document.getElementById('familyMembersGrid'); noMembersMessage = document.getElementById('noMembersMessage');
+      searchInput = document.getElementById('searchInput'); genderFilter = document.getElementById('genderFilter'); lifeStatusFilter = document.getElementById('lifeStatusFilter');
+      ageMinFilter = document.getElementById('ageMinFilter'); ageMaxFilter = document.getElementById('ageMaxFilter');
+      hasFatherFilter = document.getElementById('hasFatherFilter'); hasMotherFilter = document.getElementById('hasMotherFilter');
+      hasChildrenFilter = document.getElementById('hasChildrenFilter'); hasSpouseFilter = document.getElementById('hasSpouseFilter');
+
+      filterByFatherInput = document.getElementById('filterByFatherInput'); filterByFatherSuggestions = document.getElementById('filterByFatherSuggestions'); filterByFatherId = document.getElementById('filterByFatherId');
+      filterByMotherInput = document.getElementById('filterByMotherInput'); filterByMotherSuggestions = document.getElementById('filterByMotherSuggestions'); filterByMotherId = document.getElementById('filterByMotherId');
+      filterBySiblingInput = document.getElementById('filterBySiblingInput'); filterBySiblingSuggestions = document.getElementById('filterBySiblingSuggestions'); filterBySiblingId = document.getElementById('filterBySiblingId');
+
+      clearFiltersBtn = document.getElementById('clearFiltersBtn'); selectAllCheckbox = document.getElementById('selectAllCheckbox'); exportExcelBtn = document.getElementById('exportExcelBtn');
+      messageModal = document.getElementById('messageModal'); modalMessage = document.getElementById('modalMessage'); closeMessageModalBtn = document.getElementById('closeMessageModalBtn'); confirmMessageModalBtn = document.getElementById('confirmMessageModalBtn'); loadingModal = document.getElementById('loadingModal');
+
+      displayedCountSpan = document.getElementById('displayedCount'); selectedCountSpan = document.getElementById('selectedCount'); totalDisplayedCountSpan = document.getElementById('totalDisplayedCount'); totalFamilyCountSpan = document.getElementById('totalFamilyCount');
+
+      closeMessageModalBtn.addEventListener('click', closeModal); confirmMessageModalBtn.addEventListener('click', closeModal);
+
+      lifeStatusFilter.value = 'Alive';
+
+      handleRelatedPersonFilterInput(filterByFatherInput, filterByFatherSuggestions, filterByFatherId);
+      handleRelatedPersonFilterInput(filterByMotherInput, filterByMotherSuggestions, filterByMotherId);
+      handleRelatedPersonFilterInput(filterBySiblingInput, filterBySiblingSuggestions, filterBySiblingId);
+
+      searchInput.addEventListener('input', displayFamilyMembers);
+      genderFilter.addEventListener('change', displayFamilyMembers);
+      lifeStatusFilter.addEventListener('change', displayFamilyMembers);
+      ageMinFilter.addEventListener('input', displayFamilyMembers); ageMaxFilter.addEventListener('input', displayFamilyMembers);
+      hasFatherFilter.addEventListener('change', displayFamilyMembers); hasMotherFilter.addEventListener('change', displayFamilyMembers);
+      hasChildrenFilter.addEventListener('change', displayFamilyMembers); hasSpouseFilter.addEventListener('change', displayFamilyMembers);
+
+      clearFiltersBtn.addEventListener('click', ()=>{
+        searchInput.value=''; genderFilter.value='All'; lifeStatusFilter.value='Alive'; ageMinFilter.value=''; ageMaxFilter.value='';
+        hasFatherFilter.value='All'; hasMotherFilter.value='All'; hasChildrenFilter.value='All'; hasSpouseFilter.value='All';
+        filterByFatherInput.value=''; filterByFatherId.value=''; filterByFatherSuggestions.classList.add('hidden');
+        filterByMotherInput.value=''; filterByMotherId.value=''; filterByMotherSuggestions.classList.add('hidden');
+        filterBySiblingInput.value=''; filterBySiblingId.value=''; filterBySiblingSuggestions.classList.add('hidden');
+        displayFamilyMembers();
+      });
+
+      selectAllCheckbox.addEventListener('change', ()=>{
+        selectedPersonIds.clear();
+        if (selectAllCheckbox.checked) displayedFamilyMembers.forEach(p => selectedPersonIds.add(p.id));
+        displayFamilyMembers();
+      });
+
+      exportExcelBtn.addEventListener('click', ()=>{
+        if (selectedPersonIds.size === 0) { showModal("الرجاء تحديد شخص واحد على الأقل للتصدير."); return; }
+        const selectedData = allFamilyMembers.filter(person=> selectedPersonIds.has(person.id));
+        if (!selectedData.length) { showModal("لا توجد بيانات للأشخاص المحددين للتصدير."); return; }
+        let csvContent = "الاسم,رقم الهاتف,رقم الهوية\n";
+        selectedData.forEach(person => {
+          const name = person.fullName||''; const phone = person.phoneNumber||''; const idn = person.idNumber||'';
+          csvContent += `"${name.replace(/"/g,'""')}","${phone.replace(/"/g,'""')}","${idn.replace(/"/g,'""')}"\n`;
+        });
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.download !== undefined) { const url = URL.createObjectURL(blob); link.setAttribute('href', url); link.setAttribute('download', 'family_members_data.csv'); document.body.appendChild(link); link.click(); document.body.removeChild(link); showModal("تم تصدير البيانات بنجاح."); }
+        else showModal("متصفحك لا يدعم التصدير المباشر لملفات CSV.");
+      });
+
+      // initial load (no auth)
+      await fetchFamilyMembers();
+    });
+  </script>
+</body>
+</html>

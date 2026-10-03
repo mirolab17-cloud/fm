@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a1020">
+<title>شجرة العائلة</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a1020;--panel:#121b30;--gold:#d4af37;--m:#38bdf8;--f:#f472b6;--tx:#e8edf7;--mut:#94a3b8;--line:#c9a85a88}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{display:flex;flex-direction:column;height:100dvh;overflow:hidden;color:var(--tx);font-family:Tajawal,system-ui,sans-serif;background:radial-gradient(1200px 700px at 70% -10%,#1b2b55 0,transparent 60%),radial-gradient(900px 600px at 0% 100%,#2a1d4d 0,transparent 55%),var(--bg)}
+header{flex:none;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;background:#0a1020cc;backdrop-filter:blur(10px);border-bottom:1px solid #243357;z-index:20}
+.brand{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:800;color:var(--gold);white-space:nowrap}.brand small{color:var(--mut);font-weight:500;font-size:12px}
+.search{position:relative;flex:1 1 220px;min-width:0}
+input,select{background:#0c1426;color:var(--tx);border:1px solid #2a3a63;border-radius:12px;padding:10px 12px;font:inherit;font-size:15px;width:100%;min-width:0}
+select{width:auto;max-width:48vw;flex:1 1 130px}
+#sugg{position:absolute;top:100%;right:0;left:0;margin-top:4px;background:#0f182d;border:1px solid #2a3a63;border-radius:12px;overflow:hidden;z-index:30;box-shadow:0 12px 30px #000a}
+#sugg button{display:block;width:100%;text-align:right;background:none;border:0;color:var(--tx);padding:10px 12px;font:inherit;border-bottom:1px solid #1e2b4a;cursor:pointer}
+#sugg button small{color:var(--mut)}
+nav{display:flex;gap:6px;overflow-x:auto;flex:1 1 100%;scrollbar-width:none}
+nav a{flex:none;color:var(--tx);text-decoration:none;font-size:13px;padding:6px 12px;border-radius:999px;background:#16223f;border:1px solid #243357}
+nav a.on{background:linear-gradient(135deg,#d4af37,#a8832a);color:#1c1500;font-weight:700;border:0}
+#vp{flex:1;position:relative;overflow:hidden;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+#vp:active{cursor:grabbing}
+#stage{position:absolute;top:0;left:0;transform-origin:0 0;width:max-content;padding:24px 40px 160px;will-change:transform}
+#stage.anim{transition:transform .45s cubic-bezier(.2,.8,.2,1)}
+.tree ul{display:flex;justify-content:center;padding:22px 0 0;margin:0;position:relative}
+.tree li{list-style:none;display:flex;flex-direction:column;align-items:center;position:relative;padding:22px 7px 0}
+.tree li::before,.tree li::after{content:"";position:absolute;top:0;right:50%;border-top:2px solid var(--line);width:50%;height:22px}
+.tree li::after{right:auto;left:50%;border-left:2px solid var(--line)}
+.tree li:only-child::before,.tree li:only-child::after{display:none}
+.tree li:only-child{padding-top:0}
+.tree li:first-child::before,.tree li:last-child::after{border:0 none}
+.tree li:last-child::before{border-right:2px solid var(--line);border-radius:0 10px 0 0}
+.tree li:first-child::after{border-radius:10px 0 0 0}
+.tree ul ul::before{content:"";position:absolute;top:0;left:50%;border-left:2px solid var(--line);height:22px}
+.tree>ul{padding-top:0}.tree>ul>li{padding-top:0}.tree>ul>li::before,.tree>ul>li::after{display:none}
+.node{display:flex;flex-direction:column;align-items:center}
+.couple{display:flex;align-items:center;gap:4px}
+.heart{color:var(--f);font-size:14px;filter:drop-shadow(0 0 6px #f472b688)}
+.card{position:relative;width:126px;padding:10px 8px 9px;text-align:center;cursor:pointer;border-radius:16px;background:linear-gradient(160deg,#1a2644,#0f182d);border:1px solid #2a3a63;border-top:3px solid var(--m);box-shadow:0 10px 24px #0008,inset 0 1px 0 #ffffff12;transition:transform .2s,box-shadow .2s,opacity .2s}
+.card:hover{transform:translateY(-3px)}
+.card.f{border-top-color:var(--f)}.card.sp{width:106px;transform:scale(.95)}.card.manual{cursor:default;opacity:.85}
+.av{width:48px;height:48px;border-radius:50%;margin:0 auto 6px;display:grid;place-items:center;font-size:21px;font-weight:800;color:#06101f;background:linear-gradient(135deg,#7dd3fc,#38bdf8);border:2px solid #ffffff30;overflow:hidden}
+.card.f .av{background:linear-gradient(135deg,#f9a8d4,#f472b6)}.av img{width:100%;height:100%;object-fit:cover}
+.nm{font-weight:700;font-size:14px;line-height:1.25;word-break:break-word}.lf{color:var(--mut);font-size:11px;margin-top:2px;min-height:14px}
+.chip{display:inline-block;margin-top:5px;padding:1px 8px;border-radius:999px;font-size:10.5px;background:#2a2347;color:#e9d8a6;border:1px solid #d4af3755;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip.own{background:linear-gradient(135deg,#d4af37,#a8832a);color:#1c1500;font-weight:700;border:0}
+.dead{filter:grayscale(.75);opacity:.8}.dead::after{content:"🕊";position:absolute;top:5px;left:7px;font-size:12px}
+.star{position:absolute;top:-10px;right:-8px;background:linear-gradient(135deg,#f5d36b,#b8912e);color:#241a00;border-radius:999px;font-size:11px;font-weight:800;padding:2px 7px;box-shadow:0 3px 10px #0008}
+.hit{box-shadow:0 0 0 2px var(--gold),0 0 28px #d4af3777!important}.dim{opacity:.15}
+.tog{margin-top:-2px;min-width:22px;height:22px;padding:0 7px;border-radius:999px;border:1px solid var(--gold);background:#0a1020;color:var(--gold);font:700 12px Tajawal,sans-serif;cursor:pointer;z-index:2}
+.fab{position:fixed;right:12px;bottom:calc(14px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;z-index:15}
+.fab button{width:46px;height:46px;border-radius:14px;border:1px solid #2f4275;background:#111c38ee;color:var(--tx);font-size:19px;cursor:pointer;box-shadow:0 8px 20px #0009;backdrop-filter:blur(8px)}
+.fab button:active{transform:scale(.94)}
+#sheet{position:fixed;left:0;right:0;bottom:0;margin:auto;max-width:600px;max-height:76vh;overflow:auto;z-index:10000;background:linear-gradient(180deg,#16223f,#0e1730);border:1px solid #2f4275;border-bottom:0;border-radius:24px 24px 0 0;padding:8px 18px calc(22px + env(safe-area-inset-bottom,0px));transform:translateY(110%);transition:transform .3s cubic-bezier(.2,.8,.2,1);box-shadow:0 -20px 50px #000b}
+#sheet.open{transform:none}.grab{width:44px;height:5px;border-radius:9px;background:#3a4c7d;margin:4px auto 10px}
+#sheet h2{margin:0 0 4px;font-size:21px;color:var(--gold)}.mut{color:var(--mut);font-size:13px;margin:4px 0}
+.box{margin:10px 0;padding:10px 12px;border-radius:14px;background:#0c1426;border:1px solid #243357}.box.gold{border-color:#d4af3788;background:#1e1a0c}
+.lbl{font-size:12px;color:var(--mut);margin:8px 0 4px}.row{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.btn{background:#1e2c50;color:#fff;border:1px solid #2f4275;border-radius:12px;padding:10px 14px;font:inherit;font-size:14px;cursor:pointer}
+.btn.gold{background:linear-gradient(135deg,#d4af37,#a8832a);color:#1c1500;border:0;font-weight:800}.btn:disabled{opacity:.5}
+#toast{position:fixed;top:calc(80px + env(safe-area-inset-top,0px));left:50%;transform:translate(-50%,-20px);opacity:0;pointer-events:none;background:#111c38;border:1px solid var(--gold);color:var(--tx);padding:10px 18px;border-radius:999px;z-index:10001;transition:.3s;max-width:90vw;text-align:center}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#msg{position:absolute;inset:0;display:grid;place-items:center;color:var(--mut);font-size:17px;padding:20px;text-align:center;pointer-events:none}
+@media(max-width:600px){.card{width:112px;padding:9px 6px}.card.sp{width:94px}.av{width:42px;height:42px;font-size:18px}.brand{font-size:16px}.brand small{display:none}select{max-width:46vw}}
+@media print{header,.fab,#sheet,.gbar,#toast{display:none!important}body{height:auto;overflow:visible;background:#fff}#vp{overflow:visible}#stage{position:static;transform:none!important}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style>
+</head>
+<body data-require="viewer">
+<header>
+  <div class="brand">🌳 شجرة العائلة <small id="count"></small></div>
+  <div class="search"><input id="q" type="search" placeholder="ابحث بالاسم أو الفئة…" autocomplete="off" enterkeyhint="search"><div id="sugg" hidden></div></div>
+  <select id="tagSel" aria-label="الفئة"><option value="">كل الفئات</option></select>
+  <select id="rootSel" aria-label="الجذر"></select>
+  <nav><a href="index.html">القائمة</a><a class="on" href="family_tree.html">الشجرة</a><a href="mukhtars.html">المخاتير</a><a href="events.html">الأحداث</a><a href="statistics.html">الإحصائيات</a><a href="export_data.html">تصدير</a><a href="add_edit_person.html">إضافة شخص</a></nav>
+</header>
+<main id="vp"><div id="stage"><div class="tree" id="tree"></div></div><div id="msg">جاري التحميل…</div></main>
+<div class="fab">
+  <button id="zi" aria-label="تكبير">＋</button><button id="zo" aria-label="تصغير">－</button><button id="fit" aria-label="ملاءمة">⤢</button>
+  <button id="exp" aria-label="فتح الكل">⊞</button><button id="col" aria-label="طي الكل">⊟</button>
+  <button id="lnk" aria-label="نسخ رابط متتبَّع">🔗</button><button id="png" aria-label="صورة">🖼</button><button id="prn" aria-label="طباعة">🖨</button><button id="tgs" data-min-role="editor" aria-label="إعادة حساب الفئات">🏷</button>
+</div>
+<aside id="sheet" aria-hidden="true"><div class="grab"></div><div id="sbody"></div><div class="row"><button class="btn" id="sclose">إغلاق</button></div></aside>
+<div id="toast"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script type="module" src="auth-guard.js"></script>
+<script type="module">
+import { session, rank, members, kidsOf, propagateTags, copyTracked, db, collection, getDocs, doc, updateDoc } from "./lib.js";
+const S = await session(), $ = (i) => document.getElementById(i);
+const h = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+const norm = (s) => (s || "").replace(/[\u064B-\u065F\u0640]/g, "").replace(/[أإآٱ]/g, "ا").replace(/ى/g, "ي").replace(/ة/g, "ه").toLowerCase();
+const isF = (m) => /^(f|أ)/i.test(m.gender || "");
+async function main() {
+  let all = [], byId, kids, parentOf = new Map(), mk = new Map(), mkList = [], size = new Map(), root = null, tagF = "", q = "";
+  const collapsed = new Set(), vp = $("vp"), st = $("stage"), tree = $("tree");
+  let k = 1, tx = 0, ty = 0;
+  const apply = () => { st.style.transform = `translate(${tx}px,${ty}px) scale(${k})`; };
+  const toast = (m) => { const t = $("toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 2800); };
+  const yr = (d) => (d && d.toDate ? d.toDate().getFullYear() : null);
+  const life = (m) => { const b = yr(m.birthDate), d = yr(m.deathDate); return m.isAlive === false ? `${b || "؟"} – ${d || "؟"}` : b ? `مواليد ${b}` : ""; };
+  const sz = (id, seen = new Set()) => { if (size.has(id)) return size.get(id); if (seen.has(id)) return 1; seen.add(id); let n = 1; kids.get(id).forEach((c) => (n += sz(c, seen))); size.set(id, n); return n; };
+  const byBirth = (a, b) => (byId.get(a).birthDate?.toMillis?.() ?? 1e15) - (byId.get(b).birthDate?.toMillis?.() ?? 1e15);
+  const ancestors = (id) => { const a = []; let c = parentOf.get(id); while (c && a.length < 300 && !a.includes(c)) { a.push(c); c = parentOf.get(c); } return a; };
+
+  function card(m, cls = "") {
+    const d = h("div", `card ${isF(m) ? "f" : ""} ${m.isAlive === false ? "dead" : ""} ${cls}`); d.dataset.id = m.id;
+    const av = h("div", "av"); if (m.photoUrl || m.photoURL) { const i = h("img"); i.src = m.photoUrl || m.photoURL; i.alt = ""; i.loading = "lazy"; av.appendChild(i); } else av.textContent = (m.firstName || m.fullName || "؟").trim().charAt(0);
+    d.append(av, h("div", "nm", m.firstName || m.fullName || "—"), h("div", "lf", life(m)));
+    if ((m.tags || []).length) d.appendChild(h("span", "chip own", m.tags[0]));
+    const mi = mk.get(m.id); if (mi) d.appendChild(h("span", "star", "⭐ " + (mkList.findIndex((x) => x.personId === m.id) + 1)));
+    return d;
+  }
+  function build(id, seen) {
+    const m = byId.get(id), li = h("li"), node = h("div", "node"), couple = h("div", "couple");
+    couple.appendChild(card(m));
+    (m.spouseIds || []).forEach((sid) => { const s = byId.get(sid); if (s) { couple.append(h("span", "heart", "♥"), card(s, "sp")); } });
+    (m.manualSpouseNames || []).forEach((n) => { const c = h("div", "card sp manual"); c.appendChild(h("div", "nm", n)); couple.append(h("span", "heart", "♥"), c); });
+    node.appendChild(couple);
+    const ks = [...kids.get(id)].filter((c) => !seen.has(c)).sort(byBirth);
+    if (ks.length) {
+      const t = h("button", "tog", collapsed.has(id) ? "+" + ks.length : "−"); t.dataset.id = id; t.setAttribute("aria-label", "طي/فتح الفرع"); node.appendChild(t);
+    }
+    li.appendChild(node);
+    if (ks.length && !collapsed.has(id)) { const ul = h("ul"); ks.forEach((c) => { seen.add(c); ul.appendChild(build(c, seen)); }); li.appendChild(ul); }
+    return li;
+  }
+  function render() {
+    tree.replaceChildren(); if (!root) return;
+    const ul = h("ul"); ul.appendChild(build(root, new Set([root]))); tree.appendChild(ul); applyFilter();
+  }
+  function applyFilter() {
+    const nq = norm(q), on = !!(nq || tagF);
+    tree.querySelectorAll(".card[data-id]").forEach((c) => {
+      const m = byId.get(c.dataset.id), okq = !nq || norm((m.fullName || "") + " " + (m.allTags || []).join(" ")).includes(nq), okt = !tagF || (m.allTags || []).includes(tagF);
+      c.classList.toggle("hit", on && okq && okt); c.classList.toggle("dim", on && !(okq && okt));
+    });
+  }
+  function fit(min = 0.15) {
+    const r = vp.getBoundingClientRect(), w = st.offsetWidth, hh = st.offsetHeight;
+    k = Math.max(min, Math.min(1, (r.width - 16) / w, (r.height - 16) / hh)); tx = (r.width - w * k) / 2; ty = 8; apply();
+  }
+  function go(fn) { st.classList.add("anim"); fn(); apply(); clearTimeout(go.t); go.t = setTimeout(() => st.classList.remove("anim"), 520); }
+  function centerOn(el, top) {
+    const r = vp.getBoundingClientRect(), b = el.getBoundingClientRect();
+    go(() => { tx += r.left + r.width / 2 - (b.left + b.width / 2); ty += top ? r.top + 40 - b.top : r.top + r.height / 2 - (b.top + b.height / 2); });
+  }
+  function zoomAt(f, cx, cy) {
+    const nk = Math.min(2.5, Math.max(0.12, k * f)), r = vp.getBoundingClientRect(), x = cx - r.left, y = cy - r.top;
+    tx = x - (x - tx) * (nk / k); ty = y - (y - ty) * (nk / k); k = nk; apply();
+  }
+  function setRoot(id) {
+    root = id; const s = $("rootSel");
+    if (![...s.options].some((o) => o.value === id)) s.add(new Option((byId.get(id).firstName || "") + " " + (byId.get(id).familyName || ""), id));
+    s.value = id;
+  }
+  function focusPerson(id) {
+    const anc = ancestors(id);
+    if (id !== root && !anc.includes(root)) setRoot(anc.length ? anc[anc.length - 1] : id);
+    anc.forEach((a) => collapsed.delete(a)); render();
+    const el = tree.querySelector(`.card[data-id="${id}"]`);
+    if (el) { centerOn(el); el.classList.add("hit"); }
+  }
+  const fillTags = () => {
+    const s = new Set(); all.forEach((m) => (m.allTags || []).forEach((t) => s.add(t)));
+    const sel = $("tagSel"), cur = sel.value; sel.replaceChildren(new Option("كل الفئات", ""), ...[...s].sort().map((t) => new Option(t, t))); sel.value = s.has(cur) ? cur : "";
+  };
+  function openSheet(id) {
+    const m = byId.get(id), b = $("sbody"); b.replaceChildren();
+    b.appendChild(h("h2", "", m.fullName || m.firstName));
+    b.appendChild(h("p", "mut", [life(m), isF(m) ? "أنثى" : "ذكر", m.isAlive === false ? "رحمه الله" : ""].filter(Boolean).join(" · ")));
+    const mi = mk.get(id);
+    if (mi) {
+      const i = mkList.findIndex((x) => x.personId === id), bx = h("div", "box gold");
+      bx.appendChild(h("b", "", `⭐ المختار رقم ${i + 1}` + (mi.fromYear ? ` (${mi.fromYear}${mi.toYear ? " – " + mi.toYear : " – الآن"})` : "")));
+      if (mkList[i - 1]) bx.appendChild(h("div", "mut", "المختار قبله: " + mkList[i - 1].personName));
+      if (mkList[i + 1]) bx.appendChild(h("div", "mut", "المختار بعده: " + mkList[i + 1].personName));
+      b.appendChild(bx);
+    }
+    if ((m.allTags || []).length) { b.appendChild(h("div", "lbl", "الفئات (الذهبي مباشرة والباقي موروث من الأجداد)")); const tg = h("div"); m.allTags.forEach((t) => tg.append(h("span", "chip" + ((m.tags || []).includes(t) ? " own" : ""), t), " ")); b.appendChild(tg); }
+    b.appendChild(h("p", "mut", `الأبناء: ${kids.get(id).size} · إجمالي السلالة: ${sz(id) - 1}`));
+    const row = h("div", "row"), btn = (t, fn, c = "") => { const x = h("button", "btn " + c, t); x.onclick = fn; row.appendChild(x); return x; };
+    btn("👤 الملف الشخصي", () => (location.href = `profile.html?id=${id}`));
+    btn("🌳 اجعله الجذر", () => { setRoot(id); closeSheet(); render(); fit(0.5); });
+    if (!S.user.isAnonymous) btn("🔗 رابط متتبَّع", async () => { try { await copyTracked(S, "profile.html", "id=" + id); toast("نُسخ رابط متتبَّع صالح 7 أيام"); } catch (e) { toast("تعذّر: " + e.message); } });
+    b.appendChild(row);
+    if (rank[S.role] >= 2) {
+      const bx = h("div", "box"); bx.appendChild(h("div", "lbl", "فئة الشخص — تنتقل تلقائياً لكل أولاده وأحفاده (افصل بفاصلة)"));
+      const inp = h("input"); inp.value = (m.tags || []).join("، "); inp.placeholder = "مثال: فرع القرعان";
+      const sv = h("button", "btn gold", "حفظ ونشر على السلالة"); sv.style.marginTop = "8px";
+      sv.onclick = async () => {
+        sv.disabled = true;
+        try {
+          const arr = [...new Set(inp.value.split(/[,،]/).map((s) => s.trim()).filter(Boolean))];
+          await updateDoc(doc(db, "familyMembers", id), { tags: arr }); m.tags = arr;
+          const n = await propagateTags(all); fillTags(); render(); toast(`تم الحفظ — حُدّث ${n} شخصاً`); openSheet(id);
+        } catch (e) { toast("تعذّر الحفظ: " + e.message); }
+        sv.disabled = false;
+      };
+      bx.append(inp, sv); b.appendChild(bx);
+    }
+    $("sheet").classList.add("open"); $("sheet").setAttribute("aria-hidden", "false");
+  }
+  const closeSheet = () => { $("sheet").classList.remove("open"); $("sheet").setAttribute("aria-hidden", "true"); };
+
+  all = await members(); ({ byId, kids } = kidsOf(all));
+  kids.forEach((s, p) => s.forEach((c) => parentOf.set(c, p)));
+  try { mk = new Map((await getDocs(collection(db, "mukhtars"))).docs.map((d) => [d.data().personId, d.data()])); mkList = [...mk.values()].sort((a, b) => a.order - b.order); } catch (e) {}
+  $("count").textContent = `${all.length} فرداً`;
+  if (!all.length) { $("msg").textContent = "لا توجد بيانات بعد. أضف أول شخص من «إضافة شخص»."; return; }
+  $("msg").remove();
+  const roots = all.filter((m) => !parentOf.has(m.id)).sort((a, b) => sz(b.id) - sz(a.id)).slice(0, 30);
+  $("rootSel").replaceChildren(...roots.map((m) => new Option(`${m.firstName || ""} ${m.familyName || ""} (${sz(m.id)})`, m.id)));
+  const P = new URLSearchParams(location.search), want = P.get("root");
+  setRoot(want && byId.has(want) ? want : roots[0].id); fillTags();
+  if (P.get("tag")) { tagF = P.get("tag"); $("tagSel").value = tagF; }
+  if (all.length > 80) { const auto = (id, d, seen = new Set()) => { if (seen.has(id)) return; seen.add(id); if (d >= 2 && kids.get(id).size) collapsed.add(id); kids.get(id).forEach((c) => auto(c, d + 1, seen)); }; auto(root, 0); }
+  render(); fit(innerWidth < 700 ? 0.55 : 0.4);
+  const rc = tree.querySelector(".card"); if (rc && k <= 0.56) centerOn(rc, true);
+
+  const ptr = new Map(); let lastD = 0, moved = 0;
+  vp.addEventListener("pointerdown", (e) => { ptr.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; if (ptr.size === 2) { const [a, b] = [...ptr.values()]; lastD = Math.hypot(a.x - b.x, a.y - b.y); } });
+  addEventListener("pointermove", (e) => {
+    const p = ptr.get(e.pointerId); if (!p) return;
+    if (ptr.size === 1) { const dx = e.clientX - p.x, dy = e.clientY - p.y; moved += Math.abs(dx) + Math.abs(dy); tx += dx; ty += dy; p.x = e.clientX; p.y = e.clientY; apply(); }
+    else if (ptr.size === 2) { p.x = e.clientX; p.y = e.clientY; const [a, b] = [...ptr.values()], d = Math.hypot(a.x - b.x, a.y - b.y); if (lastD) zoomAt(d / lastD, (a.x + b.x) / 2, (a.y + b.y) / 2); lastD = d; moved = 99; }
+  });
+  const up = (e) => { ptr.delete(e.pointerId); lastD = 0; };
+  addEventListener("pointerup", up); addEventListener("pointercancel", up);
+  vp.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt(e.deltaY < 0 ? 1.12 : 0.89, e.clientX, e.clientY); }, { passive: false });
+  tree.addEventListener("click", (e) => {
+    if (moved > 8) return;
+    const t = e.target.closest(".tog");
+    if (t) { collapsed.has(t.dataset.id) ? collapsed.delete(t.dataset.id) : collapsed.add(t.dataset.id); render(); return; }
+    const c = e.target.closest(".card[data-id]"); if (c) openSheet(c.dataset.id);
+  });
+  vp.addEventListener("click", (e) => { if (!e.target.closest(".card,.tog")) closeSheet(); });
+  $("sclose").onclick = closeSheet;
+  $("zi").onclick = () => go(() => { const r = vp.getBoundingClientRect(); zoomAt(1.3, r.left + r.width / 2, r.top + r.height / 2); });
+  $("zo").onclick = () => go(() => { const r = vp.getBoundingClientRect(); zoomAt(0.77, r.left + r.width / 2, r.top + r.height / 2); });
+  $("fit").onclick = () => go(() => fit());
+  $("exp").onclick = () => { collapsed.clear(); render(); go(() => fit()); };
+  $("col").onclick = () => { kids.forEach((s, id) => { if (s.size && id !== root) collapsed.add(id); }); render(); go(() => fit(0.4)); };
+  $("rootSel").onchange = (e) => { root = e.target.value; render(); go(() => fit(0.5)); };
+  $("tagSel").onchange = (e) => { tagF = e.target.value; if (tagF) collapsed.clear(); render(); if (tagF) go(() => fit()); };
+  $("lnk").onclick = async () => { if (S.user.isAnonymous) return toast("النسخ المتتبَّع متاح للمسجّلين فقط"); try { await copyTracked(S, "family_tree.html", "root=" + root + (tagF ? "&tag=" + encodeURIComponent(tagF) : "")); toast("نُسخ رابط متتبَّع صالح 7 أيام"); } catch (e) { toast("تعذّر: " + e.message); } };
+  $("prn").onclick = () => print();
+  $("png").onclick = async () => {
+    if (!window.html2canvas) return toast("مكتبة التصدير لم تُحمَّل");
+    toast("جاري إنشاء الصورة…"); const old = st.style.transform; st.style.transform = "none";
+    try {
+      const c = await html2canvas(tree, { backgroundColor: "#0a1020", scale: Math.max(0.3, Math.min(2, 7000 / Math.max(tree.offsetWidth, 1))) });
+      c.toBlob((bl) => { const a = document.createElement("a"); a.href = URL.createObjectURL(bl); a.download = "family-tree.png"; a.click(); });
+    } catch (e) { toast("تعذّر التصدير: الشجرة كبيرة جداً، اطوِ بعض الفروع"); }
+    st.style.transform = old;
+  };
+  $("tgs").onclick = async () => { try { toast(`تم — حُدّث ${await propagateTags(all)} شخصاً`); fillTags(); render(); } catch (e) { toast("تعذّر: " + e.message); } };
+  const sg = $("sugg"), qi = $("q");
+  qi.addEventListener("input", () => {
+    q = qi.value.trim(); applyFilter(); sg.replaceChildren();
+    const nq = norm(q); if (nq.length < 2) { sg.hidden = true; return; }
+    const hits = all.filter((m) => norm((m.fullName || "") + " " + (m.allTags || []).join(" ")).includes(nq)).slice(0, 8);
+    hits.forEach((m) => { const b = h("button"); b.dataset.id = m.id; b.append(m.fullName || m.firstName, " "); b.appendChild(h("small", "", life(m))); sg.appendChild(b); });
+    sg.hidden = !hits.length;
+  });
+  qi.addEventListener("keydown", (e) => { if (e.key === "Enter") { const b = sg.querySelector("button"); if (b) { focusPerson(b.dataset.id); sg.hidden = true; qi.blur(); } } });
+  sg.addEventListener("pointerdown", (e) => { const b = e.target.closest("button"); if (b) { e.preventDefault(); focusPerson(b.dataset.id); sg.hidden = true; qi.blur(); } });
+  addEventListener("resize", () => go(() => fit(innerWidth < 700 ? 0.55 : 0.4)));
+}
+if (S.user && !S.bad && rank[S.role] >= 1) main().catch((e) => { console.error(e); const m = $("msg"); if (m) m.textContent = "تعذّر تحميل البيانات: " + (e.code || e.message); });
+</script>
+</body>
+</html>
