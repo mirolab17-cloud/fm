@@ -1,0 +1,45 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1020"><title>الأحداث</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+import { boot, h, $, members, picker, nm, toD, fmtD, fail, toast, rank, db, collection, getDocs, addDoc, deleteDoc, doc, Timestamp, serverTimestamp } from "./app.js";
+const S = await boot();
+const TY = { wedding: "💍 زواج", gathering: "👥 اجتماع", condolence: "🕊 عزاء", birth: "👶 مولود", other: "📌 أخرى" };
+async function run() {
+  const all = await members(), pk = picker(all), main = $("main"), today = new Date(); today.setHours(0, 0, 0, 0);
+  const next = (d) => { let x = new Date(today.getFullYear(), d.getMonth(), d.getDate()); if (x < today) x = new Date(today.getFullYear() + 1, d.getMonth(), d.getDate()); return x; };
+  const days = (d) => Math.round((d - today) / 864e5), lab = (n) => (n === 0 ? "اليوم" : n === 1 ? "غداً" : `بعد ${n} يوم`);
+  const auto = [];
+  all.forEach((m) => {
+    const b = toD(m.birthDate), dd = toD(m.deathDate);
+    if (m.isAlive !== false && b && !isNaN(b)) { const o = next(b); auto.push({ d: o, t: `🎂 ${nm(m)} يكمل ${o.getFullYear() - b.getFullYear()} سنة`, id: m.id }); }
+    if (m.isAlive === false && dd && !isNaN(dd)) { const o = next(dd); auto.push({ d: o, t: `🕊 ذكرى وفاة ${nm(m)} (${o.getFullYear() - dd.getFullYear()} سنة)`, id: m.id }); }
+  });
+  const soon = auto.filter((a) => days(a.d) <= 45).sort((a, b) => a.d - b.d);
+  async function draw() {
+    const evs = (await getDocs(collection(db, "events"))).docs.map((d) => ({ id: d.id, ...d.data() })).map((e) => ({ ...e, _d: toD(e.date) })).filter((e) => e._d && !isNaN(e._d));
+    const period = $("#period")?.value || "today"; const type = $("#filterType")?.value || "";
+    const end = period === "today" ? new Date(today.getTime()+864e5) : period === "week" ? new Date(today.getTime()+7*864e5) : period === "month" ? new Date(today.getFullYear(),today.getMonth()+1,today.getDate()) : period === "year" ? new Date(today.getFullYear()+1,today.getMonth(),today.getDate()) : new Date(8640000000000000);
+    const scoped = evs.filter((e) => !type || e.type === type); const up = scoped.filter((e) => e._d >= today && e._d < end).sort((a, b) => a._d - b._d), past = scoped.filter((e) => e._d < today).sort((a, b) => b._d - a._d);
+    const box = $("#box"); box.replaceChildren();
+    const sec = (title, items, mk) => { const p = h("div", "panel"); p.appendChild(h("h2", "", title)); if (!items.length) p.appendChild(h("div", "mut", "لا يوجد.")); items.forEach((x) => p.appendChild(mk(x))); box.appendChild(p); };
+    sec("قريباً (أعياد الميلاد والذكريات خلال 45 يوماً)", soon, (a) => { const r = h("div", "kv"), l = h("a", "", a.t); l.href = "profile.html?id=" + a.id; r.append(l, h("span", "mut", lab(days(a.d)))); return r; });
+    const mk = (e) => {
+      const r = h("div", "kv"), s = h("span"); s.append(h("b", "", (TY[e.type] || "📌") + " " + e.title)); if (e.relatedPersonName) s.append(h("div", "mut", e.relatedPersonName));
+      const t = h("span", "mut", fmtD(e._d) + (e._d >= today ? " · " + lab(days(e._d)) : ""));
+      if (S.role === "admin") { const x = h("button", "btn red", "حذف"); x.style.cssText = "min-height:30px;padding:2px 10px;margin-inline-start:8px"; x.onclick = async () => { if (confirm("حذف الحدث؟")) { try { await deleteDoc(doc(db, "events", e.id)); draw(); } catch (er) { fail(er); } } }; t.append(x); }
+      r.append(s, t); return r;
+    };
+    sec("أحداث العائلة القادمة", up, mk); if (past.length) sec("أحداث سابقة", past.slice(0, 15), mk);
+  }
+  main.innerHTML = '<div class="top"><div><h1>📅 الأحداث والذكريات</h1><p class="mut">يظهر اليوم افتراضيًا، ويمكن توسيع النطاق حسب الحاجة.</p></div></div><div class="panel"><div class="g"><select id="period"><option value="today">اليوم</option><option value="week">هذا الأسبوع</option><option value="month">هذا الشهر</option><option value="year">هذه السنة</option><option value="all">كل الأحداث</option></select><select id="filterType"><option value="">كل الأنواع</option></select></div></div><div id="add" class="panel" data-min-role="editor"><h2>إضافة حدث</h2><div class="g"><input id="ti" placeholder="عنوان الحدث *"><input id="da" type="date"><select id="ty"></select><input id="pe" placeholder="شخص مرتبط (اختياري)"></div><button class="btn gold" id="ok" style="margin-top:10px">إضافة</button></div><div id="box"></div>';
+  main.appendChild(pk.dl); $("#pe").setAttribute("list", pk.dl.id); Object.entries(TY).forEach(([k, v]) => { $("#ty").add(new Option(v, k)); $("#filterType").add(new Option(v, k)); }); $("#period").onchange = draw; $("#filterType").onchange = draw;
+  if (rank[S.role] < 2) $("#add").style.display = "none";
+  $("#ok").onclick = async () => {
+    const ti = $("#ti").value.trim(), da = $("#da").value; if (!ti || !da) return toast("اكتب العنوان واختر التاريخ");
+    const p = pk.get($("#pe").value);
+    try { await addDoc(collection(db, "events"), { title: ti, date: Timestamp.fromDate(new Date(da)), type: $("#ty").value, relatedPersonId: p ? p.id : null, relatedPersonName: p ? nm(p) : "", createdBy: S.user.uid, createdAt: serverTimestamp() }); $("#ti").value = $("#da").value = $("#pe").value = ""; toast("تمت الإضافة ✓"); draw(); } catch (e) { fail(e); }
+  };
+  await draw();
+}
+run().catch(fail);
+</script></body></html>
