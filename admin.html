@@ -1,0 +1,34 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1020"><title>المستخدمون والاستيراد</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"></head>
+<body data-require="admin"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+import { boot, h, $, members, fail, toast, db, collection, getDocs, doc, updateDoc, collectionGroup, writeBatch, propagateTags } from "./app.js";
+const S = await boot();
+const ROLES = { pending: "بانتظار الموافقة", viewer: "مشاهد", editor: "محرر", admin: "مدير" };
+async function run() {
+  const main = $("main");
+  main.innerHTML = '<div class="top"><h1>👥 المستخدمون والاستيراد</h1></div><div class="panel"><h2>استيراد البيانات القديمة</h2><p class="mut">إن كانت بياناتك محفوظة بالمسار القديم (artifacts/…) أو داخل مستخدمين، اضغط لنسخها إلى المسار الجديد. لا تُكرَّر السجلات الموجودة.</p><button class="btn gold" id="imp">استيراد الآن</button><p id="res" class="mut"></p></div><div class="panel tw"><h2>المستخدمون</h2><table><thead><tr><th>البريد</th><th>الدور</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>';
+  $("#imp").onclick = async () => {
+    const b = $("#imp"); b.disabled = true; $("#res").textContent = "جاري الاستيراد…";
+    try {
+      let msg = [];
+      for (const name of ["familyMembers", "events"]) {
+        const have = new Set((await getDocs(collection(db, name))).docs.map((d) => d.id));
+        const old = (await getDocs(collectionGroup(db, name))).docs.filter((d) => d.ref.parent.parent !== null && !have.has(d.id));
+        for (let i = 0; i < old.length; i += 400) { const w = writeBatch(db); old.slice(i, i + 400).forEach((d) => w.set(doc(db, name, d.id), d.data())); await w.commit(); }
+        msg.push(`${name}: نُسخ ${old.length}`);
+      }
+      try { await propagateTags(await members()); } catch (e) {}
+      $("#res").textContent = "تم — " + msg.join(" · ");
+    } catch (e) { $("#res").textContent = ""; fail(e); }
+    b.disabled = false;
+  };
+  const tb = $("#rows");
+  for (const d of (await getDocs(collection(db, "users"))).docs) {
+    const u = d.data(), tr = h("tr"), c = h("td"), s = h("select"), t2 = h("td"), t3 = h("td"), b = h("button", "btn", "حفظ");
+    c.textContent = u.email || d.id; Object.entries(ROLES).forEach(([k, v]) => { const o = new Option(v, k); o.selected = k === u.role; s.add(o); });
+    b.onclick = async () => { try { await updateDoc(doc(db, "users", d.id), { role: s.value }); toast("تم الحفظ ✓"); } catch (e) { fail(e); } };
+    t2.appendChild(s); t3.appendChild(b); tr.append(c, t2, t3); tb.appendChild(tr);
+  }
+}
+run().catch(fail);
+</script></body></html>

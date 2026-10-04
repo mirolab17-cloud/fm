@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function acct() { return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role : 'none'; }
+    function sessTok() { return get(/databases/$(database)/documents/linkSessions/$(request.auth.uid)).data.token; }
+    function lnk() { return get(/databases/$(database)/documents/shareLinks/$(sessTok())).data; }
+    function linkRole() {
+      return exists(/databases/$(database)/documents/linkSessions/$(request.auth.uid)) && lnk().active == true && lnk().expiresAt > request.time ? lnk().role : 'none';
+    }
+    function role() { return !signedIn() ? 'none' : (acct() in ['viewer', 'editor', 'admin'] ? acct() : linkRole()); }
+    function isViewer() { return role() in ['viewer', 'editor', 'admin']; }
+    function isEditor() { return role() in ['editor', 'admin']; }
+    function isAdmin()  { return signedIn() && acct() == 'admin'; }
+    function realViewer() { return signedIn() && acct() in ['viewer', 'editor', 'admin']; }
+    function validPerson() {
+      let d = request.resource.data;
+      return d.firstName is string && d.firstName.size() > 0 && d.firstName.size() < 60 && d.fullName is string && d.fullName.size() < 250
+        && (!('notes' in d) || d.notes == null || d.notes.size() < 2000);
+    }
+
+    function boot() { return exists(/databases/$(database)/documents/settings/bootstrap) && get(/databases/$(database)/documents/settings/bootstrap).data.uid == request.auth.uid; }
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.keys().hasOnly(['email', 'displayName', 'role', 'createdAt'])
+        && (request.resource.data.role == 'pending' || (request.resource.data.role == 'admin' && boot()));
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid && resource.data.role == 'pending' && request.resource.data.role == 'admin' && boot()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']));
+      allow delete: if isAdmin();
+    }
+    match /settings/bootstrap { allow read: if signedIn(); allow create: if signedIn() && request.resource.data.uid == request.auth.uid; }
+    match /{path=**}/familyMembers/{id} { allow read: if isAdmin(); }
+    match /{path=**}/events/{id} { allow read: if isAdmin(); }
+    match /familyMembers/{id} {
+      allow read: if isViewer();
+      allow create, update: if isEditor() && validPerson();
+      allow delete: if isAdmin();
+    }
+    match /events/{id} {
+      allow read: if isViewer();
+      allow create, update: if isEditor() && request.resource.data.title is string && request.resource.data.title.size() > 0;
+      allow delete: if isAdmin();
+    }
+    match /mukhtars/{id} {
+      allow read: if isViewer();
+      allow create, update: if isEditor() && request.resource.data.personName is string && request.resource.data.order is number;
+      allow delete: if isAdmin();
+    }
+    // روابط المشاركة: الرمز طويل وعشوائي (32 خانة) فيُسمح بالقراءة المفردة لأي مسجّل، والقائمة للمدير فقط
+    match /shareLinks/{t} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create: if isAdmin() || (realViewer() && request.resource.data.kind == 'copy' && request.resource.data.role == 'viewer'
+        && request.resource.data.createdBy == request.auth.uid && request.resource.data.openCount == 0
+        && request.resource.data.expiresAt < request.time + duration.value(8, 'd'));
+      allow update: if isAdmin() || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['openCount', 'lastOpenAt'])
+        && (!('openCount' in request.resource.data) || request.resource.data.openCount == resource.data.openCount || request.resource.data.openCount == resource.data.openCount + 1));
+      allow delete: if isAdmin();
+    }
+    match /linkSessions/{u} {
+      allow read, delete: if signedIn() && request.auth.uid == u;
+      allow create: if signedIn() && request.auth.uid == u && request.resource.data.keys().hasOnly(['token', 'createdAt'])
+        && get(/databases/$(database)/documents/shareLinks/$(request.resource.data.token)).data.active == true
+        && get(/databases/$(database)/documents/shareLinks/$(request.resource.data.token)).data.expiresAt > request.time
+        && (get(/databases/$(database)/documents/shareLinks/$(request.resource.data.token)).data.maxUses == 0
+            || get(/databases/$(database)/documents/shareLinks/$(request.resource.data.token)).data.openCount < get(/databases/$(database)/documents/shareLinks/$(request.resource.data.token)).data.maxUses);
+    }
+    match /linkEvents/{id} {
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin();
+      allow update, delete: if false;
+    }
+    match /settings/{id}  { allow read: if isViewer(); allow write: if isAdmin(); }
+    match /auditLogs/{id} { allow read: if isAdmin(); allow create: if isEditor(); allow update, delete: if false; }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
