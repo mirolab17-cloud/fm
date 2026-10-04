@@ -1,0 +1,58 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>روابط المشاركة</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"></head>
+<body data-require="admin"><main class="wrap">
+<div class="top"><h1>🔗 روابط المشاركة والتتبّع</h1><span><a href="admin.html">المستخدمون</a> · <a href="index.html">القائمة</a></span></div>
+<section class="panel"><b>إنشاء رابط جديد</b>
+<div class="g" style="margin-top:8px">
+<input id="lb" placeholder="لمن الرابط؟ (اسم/ملاحظة)">
+<select id="pg"><option value="family_tree.html">شجرة العائلة</option><option value="index.html">قائمة العائلة</option><option value="profile.html">ملف شخص</option><option value="events.html">الأحداث</option><option value="statistics.html">الإحصائيات</option><option value="mukhtars.html">المخاتير</option><option value="export_data.html">التصدير</option><option value="*">كل الصفحات</option></select>
+<select id="rl"><option value="viewer">مشاهدة فقط</option><option value="editor">تعديل (خطر)</option></select>
+<input id="ex" type="datetime-local"><input id="mu" type="number" min="0" placeholder="أقصى عدد زوار/أجهزة (0 = بلا حد)">
+<input id="qs" placeholder="ملحق الرابط: root=ID أو id=ID أو tag=فئة" dir="ltr"></div>
+<button class="btn gold" id="mk" style="margin-top:8px">إنشاء ونسخ الرابط</button> <span class="mut" id="out"></span></section>
+<section class="panel tw"><b>الروابط</b><table><thead><tr><th>الرابط</th><th>الصفحة/الدور</th><th>الحالة</th><th>الانتهاء</th><th>الزوار</th><th></th></tr></thead><tbody id="rows"></tbody></table></section>
+<section class="panel tw"><b>سجل الأحداث <span class="mut" id="evt"></span></b><table><thead><tr><th>الوقت</th><th>الحدث</th><th>الرابط</th><th>من</th><th>الجهاز</th></tr></thead><tbody id="ev"></tbody></table></section>
+</main>
+<script type="module">
+import { boot, confirmUI } from "./app.js";
+import { session, rank, db, collection, getDocs, doc, setDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp, query, orderBy, limit, newToken, baseUrl } from "./lib.js";
+const S = await boot(), $ = (i) => document.getElementById(i), h = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+const dt = (t) => (t?.toDate ? t.toDate().toLocaleString("ar") : "—");
+const dev = (u = "") => (/Android/.test(u) ? "Android" : /iPhone|iPad/.test(u) ? "iOS" : /Windows/.test(u) ? "Windows" : /Mac/.test(u) ? "Mac" : "؟") + " · " + (/Edg/.test(u) ? "Edge" : /Chrome/.test(u) ? "Chrome" : /Safari/.test(u) ? "Safari" : /Firefox/.test(u) ? "Firefox" : "");
+const typ = { open: "فتح الرابط", copy: "نسخ الرابط", denied: "⛔ محاولة مرفوضة" };
+async function main() {
+  const d = new Date(Date.now() + 7 * 864e5 - new Date().getTimezoneOffset() * 6e4); $("ex").value = d.toISOString().slice(0, 16);
+  const urlOf = (id, l) => baseUrl() + l.page.replace("*", "index.html") + "?" + (l.query ? l.query + "&" : "") + "s=" + id;
+  const copy = async (u) => { try { await navigator.clipboard.writeText(u); } catch (e) { navigator.clipboard.writeText(u); } };
+  async function load() {
+    const links = (await getDocs(collection(db, "shareLinks"))).docs.map((x) => ({ id: x.id, ...x.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    const evs = (await getDocs(query(collection(db, "linkEvents"), orderBy("ts", "desc"), limit(300)))).docs.map((x) => x.data());
+    const lab = new Map(links.map((l) => [l.id, l.label || l.id.slice(0, 6)])), vis = new Map();
+    evs.filter((e) => e.type === "open").forEach((e) => { if (!vis.has(e.token)) vis.set(e.token, new Set()); vis.get(e.token).add(e.uid); });
+    const rows = $("rows"); rows.replaceChildren();
+    links.forEach((l) => {
+      const exp = l.expiresAt?.toMillis?.() < Date.now(), tr = h("tr"), c = (x) => { const td = h("td"); typeof x === "string" ? (td.textContent = x) : td.appendChild(x); tr.appendChild(td); return td; };
+      const t1 = c(l.label || "—"); if (l.kind === "copy") { t1.appendChild(h("div", "mut", "نسخه مستخدم" + (l.parentToken ? " · من رابط: " + (lab.get(l.parentToken) || "؟") : ""))); }
+      c(`${l.page === "*" ? "الكل" : l.page} · ${l.role === "editor" ? "تعديل" : "مشاهدة"}`);
+      const s = h("span", "tag " + (!l.active ? "no" : exp ? "warn" : "ok"), !l.active ? "موقوف" : exp ? "منتهي" : "نشط"); c(s);
+      c(dt(l.expiresAt)); const n = vis.get(l.id)?.size || 0, v = c(`${l.openCount || 0}${l.maxUses ? "/" + l.maxUses : ""} جلسة`);
+      if (n > 1 || (l.kind === "copy" && n > 0)) v.appendChild(h("div", "tag warn", `⚠ ${n} زائر مختلف`));
+      v.appendChild(h("div", "mut", "آخر فتح: " + dt(l.lastOpenAt)));
+      const a = h("td"), b = (t, fn, k = "") => { const e = h("button", "btn " + k, t); e.style.margin = "2px"; e.onclick = fn; a.appendChild(e); };
+      b("نسخ", () => copy(urlOf(l.id, l))); b("+يوم", async () => { await updateDoc(doc(db, "shareLinks", l.id), { expiresAt: Timestamp.fromMillis(Math.max(Date.now(), l.expiresAt.toMillis()) + 864e5) }); load(); });
+      b(l.active ? "إيقاف" : "تفعيل", async () => { await updateDoc(doc(db, "shareLinks", l.id), { active: !l.active }); load(); });
+      b("حذف", async () => { if (await confirmUI("حذف الرابط", "هل تريد حذف الرابط نهائيًا؟", true)) { await deleteDoc(doc(db, "shareLinks", l.id)); load(); } }, "red"); tr.appendChild(a); rows.appendChild(tr);
+    });
+    const ev = $("ev"); ev.replaceChildren(); $("evt").textContent = `(آخر ${evs.length})`;
+    evs.forEach((e) => { const tr = h("tr"); [dt(e.ts), typ[e.type] || e.type, lab.get(e.token) || "؟", (e.email || "ضيف " + (e.uid || "").slice(0, 5)) + (e.anon ? " (بدون حساب)" : ""), dev(e.ua) + (e.page ? " · " + e.page : "")].forEach((x) => tr.appendChild(h("td", "", x))); ev.appendChild(tr); });
+  }
+  $("mk").onclick = async () => {
+    const exp = new Date($("ex").value).getTime(); if (!exp || exp < Date.now()) return ($("out").textContent = "اختر وقت انتهاء في المستقبل");
+    if ($("rl").value === "editor" && !await confirmUI("رابط تعديل حساس", "رابط التعديل يسمح لحامله بالتعديل. هل تريد المتابعة؟", true)) return;
+    const id = newToken(), l = { label: $("lb").value.trim() || "بدون اسم", page: $("pg").value, role: $("rl").value, active: true, expiresAt: Timestamp.fromMillis(exp), maxUses: +$("mu").value || 0, openCount: 0, query: $("qs").value.trim().replace(/^\?/, ""), kind: "admin", createdBy: S.user.uid, createdAt: serverTimestamp() };
+    try { await setDoc(doc(db, "shareLinks", id), l); await copy(urlOf(id, l)); $("out").textContent = "✓ تم الإنشاء ونسخ الرابط"; load(); } catch (e) { $("out").textContent = "تعذّر: " + e.message; }
+  };
+  await load();
+}
+if (S.user && !S.bad && S.role === "admin") main().catch((e) => { $("out").textContent = "تعذّر التحميل: " + (e.code || e.message); });
+</script></body></html>

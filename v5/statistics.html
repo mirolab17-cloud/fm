@@ -1,0 +1,32 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1020"><title>الإحصائيات</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+import { boot, h, $, members, kidsOf, toD, fail } from "./app.js";
+const S = await boot();
+async function run() {
+  const all = await members(), main = $("main"); main.replaceChildren();
+  if (!all.length) { main.appendChild(h("div", "empty", "لا توجد بيانات.")); return; }
+  const { kids } = kidsOf(all), has = new Set(); kids.forEach((s) => s.forEach((c) => has.add(c)));
+  const n = (f) => all.filter(f).length, alive = all.filter((m) => m.isAlive !== false), now = Date.now();
+  const age = (m) => { const b = toD(m.birthDate); return b && !isNaN(b) ? Math.floor((now - b) / 31557600000) : null; };
+  const grp = { "أقل من 18": 0, "18 – 35": 0, "36 – 55": 0, "أكثر من 55": 0 };
+  alive.forEach((m) => { const a = age(m); if (a != null) grp[a < 18 ? "أقل من 18" : a <= 35 ? "18 – 35" : a <= 55 ? "36 – 55" : "أكثر من 55"]++; });
+  const depth = new Map(), q = all.filter((m) => !has.has(m.id)).map((m) => [m.id, 1]);
+  while (q.length) { const [id, d] = q.shift(); if (depth.has(id)) continue; depth.set(id, d); kids.get(id).forEach((c) => q.push([c, d + 1])); }
+  const gens = {}; depth.forEach((d) => { const k = "الجيل " + d; gens[k] = (gens[k] || 0) + 1; });
+  const cnt = (arr) => { const o = {}; arr.forEach((x) => { if (x) o[x] = (o[x] || 0) + 1; }); return o; };
+  const top = (o, k = 8) => Object.fromEntries(Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, k));
+  const MS = { Single: "أعزب", Married: "متزوج", Divorced: "مطلق", Widowed: "أرمل" };
+  const parents = all.filter((m) => kids.get(m.id).size), avg = parents.length ? (parents.reduce((s, m) => s + kids.get(m.id).size, 0) / parents.length).toFixed(1) : "0";
+  const done = Math.round((n((m) => m.birthDate && (m.fatherId || m.fatherName || !has.has(m.id))) / all.length) * 100);
+  const aged = alive.map((m) => [m, age(m)]).filter((x) => x[1] != null).sort((a, b) => b[1] - a[1]);
+  const st = h("div", "stats");
+  [["الإجمالي", all.length], ["أحياء", alive.length], ["متوفون", all.length - alive.length], ["ذكور", n((m) => !/^(f|أ)/i.test(m.gender || ""))], ["إناث", n((m) => /^(f|أ)/i.test(m.gender || ""))], ["الأجيال", Object.keys(gens).length], ["متوسط الأبناء", avg], ["اكتمال البيانات", done + "%"]].forEach(([k, v]) => { const d = h("div", "stat"); d.append(h("b", "", v), h("span", "mut", k)); st.appendChild(d); });
+  main.append(h("div", "top")); main.firstChild.appendChild(h("h1", "", "📊 الإحصائيات")); main.appendChild(st);
+  if (aged[0]) { const p = h("div", "panel"); p.append(h("h2", "", "الأكبر سناً بين الأحياء"), h("a", "", aged[0][0].fullName || aged[0][0].firstName)); p.lastChild.href = "profile.html?id=" + aged[0][0].id; p.append(" — " + aged[0][1] + " سنة"); main.appendChild(p); }
+  const bars = (title, o) => { const p = h("div", "panel"), mx = Math.max(1, ...Object.values(o)); p.appendChild(h("h2", "", title)); const es = Object.entries(o); if (!es.length) p.appendChild(h("div", "mut", "لا توجد بيانات.")); es.forEach(([k, v]) => { const r = h("div", "br"), b = h("div"), i = h("i"); i.style.width = (v / mx) * 100 + "%"; b.appendChild(i); r.append(h("span", "", k), b, h("span", "mut", v)); p.appendChild(r); }); main.appendChild(p); };
+  bars("الفئات العمرية (الأحياء)", grp); bars("الأجيال", gens); bars("الحالة الاجتماعية", cnt(all.map((m) => MS[m.maritalStatus] || "غير محدد")));
+  bars("الأسماء الأكثر شيوعاً", top(cnt(all.map((m) => m.firstName)))); const tg = {}; all.forEach((m) => (m.allTags || []).forEach((t) => (tg[t] = (tg[t] || 0) + 1))); bars("الفئات والفروع", top(tg, 10));
+}
+run().catch(fail);
+</script></body></html>

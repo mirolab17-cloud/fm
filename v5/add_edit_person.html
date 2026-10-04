@@ -1,0 +1,74 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1020"><title>إضافة أو تعديل شخص</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"></head>
+<body data-require="editor"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+import { boot, h, $, members, picker, nm, iso, fail, toast, db, doc, collection, addDoc, writeBatch, serverTimestamp, Timestamp, arrayUnion, arrayRemove, propagateTags } from "./app.js";
+const S = await boot();
+async function run() {
+  const people = await members(), pk = picker(people), id = new URLSearchParams(location.search).get("id"), cur = id ? people.find((p) => p.id === id) : null;
+  if (id && !cur) throw new Error("الشخص غير موجود");
+  const main = $("main"), m = cur || {};
+  main.innerHTML = `<div class="top"><h1>${id ? "تعديل شخص" : "إضافة شخص"}</h1><a href="${id ? "profile.html?id=" + id : "index.html"}">رجوع</a></div>
+<form id="f" autocomplete="off">
+<div class="panel"><h2>الاسم</h2><div class="g">
+<div><label class="l">الاسم الأول *</label><input id="fn" required></div><div><label class="l">اسم الأب</label><input id="fa"></div>
+<div><label class="l">اسم الجد</label><input id="gr"></div><div><label class="l">اسم العائلة</label><input id="fm"></div></div></div>
+<div class="panel"><h2>النسب</h2><div class="g">
+<div><label class="l">الأب (اختر من القائمة)</label><input id="ft" list="${pk.dl.id}" placeholder="ابحث عن الأب…"></div>
+<div><label class="l">الأم (اختر من القائمة)</label><input id="mt" list="${pk.dl.id}" placeholder="ابحث عن الأم…"></div>
+<div><label class="l">اسم الأم (إن لم تكن مسجلة)</label><input id="mn"></div></div></div>
+<div class="panel"><h2>البيانات</h2><div class="g">
+<div><label class="l">الجنس</label><select id="gn"><option value="Male">ذكر</option><option value="Female">أنثى</option></select></div>
+<div><label class="l">تاريخ الميلاد</label><input id="bd" type="date"></div>
+<div><label class="l">الحالة الاجتماعية</label><select id="ms"><option value="Single">أعزب/عزباء</option><option value="Married">متزوج/ة</option><option value="Divorced">مطلق/ة</option><option value="Widowed">أرمل/ة</option></select></div>
+<div><label class="l">الحالة</label><label class="chk"><input id="al" type="checkbox" checked> على قيد الحياة</label></div>
+<div id="dw" style="display:none"><label class="l">تاريخ الوفاة</label><input id="dd" type="date"></div></div></div>
+<div class="panel"><h2>الزواج</h2><div class="row"><input id="sp" list="${pk.dl.id}" placeholder="ابحث عن الزوج/الزوجة…" style="flex:1"><button type="button" class="btn" id="spa">إضافة</button></div>
+<div class="rels" id="spl" style="margin:10px 0"></div><label class="l">أزواج/زوجات غير مسجلين (كل اسم في سطر)</label><textarea id="ml" rows="2"></textarea></div>
+<div class="panel"><h2>التواصل والفئات</h2><div class="g">
+<div><label class="l">رقم الجوال</label><input id="ph" type="tel" inputmode="tel" dir="ltr"></div><div><label class="l">رقم الهوية</label><input id="idn" inputmode="numeric" dir="ltr"></div>
+<div><label class="l">رابط الصورة (اختياري)</label><input id="pu" type="url" dir="ltr"></div>
+<div><label class="l">الفئات (تنتقل للأبناء والأحفاد، افصل بفاصلة)</label><input id="tg" placeholder="مثال: فرع القرعان"></div></div>
+<label class="l" style="margin-top:10px">ملاحظات</label><textarea id="nt" rows="3" maxlength="1900"></textarea></div>
+<button class="btn gold" id="sv" style="width:100%">${id ? "حفظ التعديلات" : "حفظ الشخص"}</button></form>`;
+  main.appendChild(pk.dl);
+  const v = (i) => $("#" + i).value.trim(); let spouses = [...(m.spouseIds || [])];
+  const set = (i, x) => ($("#" + i).value = x || "");
+  set("fn", m.firstName); set("fa", m.fatherName); set("gr", m.grandFatherName); set("fm", m.familyName); set("mn", m.motherName);
+  const byId = new Map(people.map((p) => [p.id, p]));
+  if (m.fatherId && byId.has(m.fatherId)) set("ft", pk.lab(byId.get(m.fatherId))); if (m.motherId && byId.has(m.motherId)) set("mt", pk.lab(byId.get(m.motherId)));
+  set("gn", m.gender === "Female" ? "Female" : "Male"); set("bd", iso(m.birthDate)); set("ms", m.maritalStatus || "Single"); $("#al").checked = m.isAlive !== false; set("dd", iso(m.deathDate));
+  set("ph", m.phoneNumber); set("idn", m.idNumber); set("pu", m.photoUrl); set("tg", (m.tags || []).join("، ")); set("nt", m.notes); set("ml", (m.manualSpouseNames || []).join("\n"));
+  const panels = [...document.querySelectorAll("#f .panel")], stepBox = h("div", "row"); stepBox.style.cssText = "margin:0 0 12px;justify-content:space-between"; const prev = h("button", "btn", "السابق"); prev.type = "button"; const next = h("button", "btn gold", "التالي"); next.type = "button"; const stepLabel = h("span", "mut", ""); stepBox.append(prev, stepLabel, next); $("#f").prepend(stepBox); let step = 0;
+  const drawStep = () => { panels.forEach((p, i) => p.style.display = i === step ? "" : "none"); prev.style.visibility = step ? "visible" : "hidden"; next.textContent = step === panels.length - 1 ? "مراجعة وحفظ" : "التالي"; stepLabel.textContent = `المرحلة ${step + 1} من ${panels.length}`; $("#sv").style.display = step === panels.length - 1 ? "" : "none"; };
+  prev.onclick = () => { if (step) { step--; drawStep(); scrollTo(0, 0); } }; next.onclick = () => { if (step < panels.length - 1) { step++; drawStep(); scrollTo(0, 0); } else $("#f").requestSubmit(); }; drawStep();
+  const draftKey = "family-person-draft-" + (id || "new"); try { if (!id) { const draft = JSON.parse(localStorage.getItem(draftKey) || "null"); if (draft) Object.entries(draft).forEach(([k, val]) => { const el = $("#" + k); if (el && !el.value) el.value = val; }); } } catch (e) {}
+  const saveDraft = () => { const draft = {}; document.querySelectorAll("#f input, #f select, #f textarea").forEach(el => { if (el.id) draft[el.id] = el.type === "checkbox" ? el.checked : el.value; }); localStorage.setItem(draftKey, JSON.stringify(draft)); }; document.querySelectorAll("#f input, #f select, #f textarea").forEach(el => el.addEventListener("input", saveDraft));
+  const life = () => ($("#dw").style.display = $("#al").checked ? "none" : ""); $("#al").onchange = life; life();
+  $("#ft").onchange = () => { const f = pk.get($("#ft").value); if (!f) return; if (!v("fa")) set("fa", f.firstName); if (!v("gr")) set("gr", f.fatherName); if (!v("fm")) set("fm", f.familyName); };
+  const drawSp = () => { $("#spl").replaceChildren(...spouses.map((s) => { const c = h("span", "rel", (byId.has(s) ? nm(byId.get(s)) : s) + " ✕"); c.style.cursor = "pointer"; c.onclick = () => { spouses = spouses.filter((x) => x !== s); drawSp(); }; return c; })); };
+  $("#spa").onclick = () => { const p = pk.get($("#sp").value); if (!p) return toast("اختر شخصاً من القائمة"); if (p.id === id) return toast("لا يمكن اختيار نفس الشخص"); if (!spouses.includes(p.id)) spouses.push(p.id); set("sp", ""); drawSp(); }; drawSp();
+  $("#f").onsubmit = async (e) => {
+    e.preventDefault(); const btn = $("#sv"); btn.disabled = true;
+    try {
+      const fa = pk.get(v("ft")), mo = pk.get(v("mt")), fid = fa ? fa.id : null, mid = mo ? mo.id : null;
+      if (v("ft") && !fa) throw new Error("اختر الأب من القائمة المقترحة أو امسح الحقل");
+      if (v("mt") && !mo) throw new Error("اختر الأم من القائمة المقترحة أو امسح الحقل");
+      if (id && (fid === id || mid === id)) throw new Error("لا يمكن أن يكون الشخص أباً أو أماً لنفسه");
+      const alive = $("#al").checked, bd = v("bd") ? Timestamp.fromDate(new Date(v("bd"))) : null, dd = !alive && v("dd") ? Timestamp.fromDate(new Date(v("dd"))) : null;
+      if (bd && dd && dd.toMillis() < bd.toMillis()) throw new Error("تاريخ الوفاة قبل تاريخ الميلاد");
+      if (bd && bd.toMillis() > Date.now()) throw new Error("تاريخ الميلاد في المستقبل");
+      const tags = [...new Set(v("tg").split(/[,،]/).map((s) => s.trim()).filter(Boolean))];
+      const d = { firstName: v("fn"), fatherName: v("fa"), grandFatherName: v("gr"), familyName: v("fm"), motherName: v("mn"), fullName: [v("fn"), v("fa"), v("gr"), v("fm")].filter(Boolean).join(" "), fatherId: fid, motherId: mid, gender: v("gn"), birthDate: bd, isAlive: alive, deathDate: dd, maritalStatus: v("ms"), spouseIds: spouses, manualSpouseNames: v("ml").split("\n").map((s) => s.trim()).filter(Boolean), phoneNumber: v("ph"), idNumber: v("idn"), photoUrl: v("pu"), tags, notes: v("nt"), updatedAt: serverTimestamp(), updatedBy: S.user.uid };
+      const ref = id ? doc(db, "familyMembers", id) : doc(collection(db, "familyMembers")), b = writeBatch(db), rid = ref.id;
+      id ? b.set(ref, d, { merge: true }) : b.set(ref, { ...d, childrenIds: [], createdAt: serverTimestamp(), createdBy: S.user.uid });
+      const link = (pid, field, add) => b.update(doc(db, "familyMembers", pid), { [field]: add ? arrayUnion(rid) : arrayRemove(rid) });
+      [["fatherId", fid], ["motherId", mid]].forEach(([k, nv]) => { const ov = m[k] || null; if (ov && ov !== nv && byId.has(ov)) link(ov, "childrenIds", false); if (nv && nv !== ov) link(nv, "childrenIds", true); });
+      const os = m.spouseIds || []; spouses.filter((x) => !os.includes(x) && byId.has(x)).forEach((x) => link(x, "spouseIds", true)); os.filter((x) => !spouses.includes(x) && byId.has(x)).forEach((x) => link(x, "spouseIds", false));
+      await b.commit();
+      try { await propagateTags(await members()); } catch (x) { console.warn(x); }
+      localStorage.removeItem(draftKey); await addDoc(collection(db, "auditLogs"), { type: id ? "person-update" : "person-create", targetId: rid, by: S.user.uid, at: serverTimestamp() }); toast("تم الحفظ ✓"); setTimeout(() => (location.href = "profile.html?id=" + rid), 600);
+    } catch (x) { btn.disabled = false; x.code ? fail(x) : toast(x.message); scrollTo(0, 0); }
+  };
+}
+run().catch(fail);
+</script></body></html>

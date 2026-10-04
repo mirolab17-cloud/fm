@@ -1,0 +1,60 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>مخاتير العائلة</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"></head>
+<body data-require="viewer"><main class="wrap">
+<div class="top"><h1>⭐ مخاتير العائلة</h1><span><a href="family_tree.html">الشجرة</a> · <a href="index.html">القائمة</a></span></div>
+<section class="panel" data-min-role="editor"><b>إضافة مختار</b>
+<div class="g" style="margin-top:8px"><input id="p" list="pl" placeholder="اكتب اسم الشخص…"><datalist id="pl"></datalist>
+<input id="fy" type="number" placeholder="من سنة"><input id="ty" type="number" placeholder="إلى سنة (فارغ = الحالي)"><select id="pos"></select></div>
+<textarea id="nt" rows="2" placeholder="ملاحظات (اختياري)" style="margin-top:8px"></textarea>
+<button class="btn gold" id="add" style="margin-top:8px">إضافة</button> <span class="mut" id="st"></span></section>
+<div id="list" class="step"></div></main>
+<script type="module">
+import { boot, confirmUI, inputUI } from "./app.js";
+import { session, rank, members, db, collection, getDocs, doc, addDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp, query, orderBy } from "./lib.js";
+const S = await boot(), $ = (i) => document.getElementById(i), h = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+async function main() {
+  const people = await members(), map = new Map(); let list = [];
+  const lab = (m) => `${m.fullName || m.firstName} · ${m.birthDate?.toDate ? m.birthDate.toDate().getFullYear() : "؟"} · ${m.id.slice(0, 4)}`;
+  people.forEach((m) => map.set(lab(m), m)); $("pl").replaceChildren(...[...map.keys()].map((k) => { const o = document.createElement("option"); o.value = k; return o; }));
+  const canEdit = rank[S.role] >= 2, isAdmin = S.role === "admin";
+  async function load() {
+    list = (await getDocs(query(collection(db, "mukhtars"), orderBy("order")))).docs.map((d) => ({ id: d.id, ...d.data() }));
+    const pos = $("pos"); pos.replaceChildren(new Option("الترتيب: في النهاية (الأحدث)", "end"), ...list.map((x, i) => new Option("قبل: " + x.personName, i)));
+    const box = $("list"); box.replaceChildren();
+    if (!list.length) box.appendChild(h("p", "mut", "لم يُسجَّل أي مختار بعد."));
+    list.forEach((x, i) => {
+      if (i) box.appendChild(h("div", "arrow", "⬇"));
+      const c = h("div", "mk"), cur = i === list.length - 1 && !x.toYear;
+      c.appendChild(h("div", "mut", `المختار رقم ${i + 1}` + (cur ? " · الحالي" : "")));
+      const a = h("a", "", x.personName); a.href = "profile.html?id=" + x.personId; a.style.cssText = "font-size:20px;font-weight:800;display:block;margin:4px 0"; c.appendChild(a);
+      c.appendChild(h("div", "mut", `${x.fromYear || "؟"} – ${x.toYear || (cur ? "الآن" : "؟")}`));
+      c.appendChild(h("div", "mut", `قبله: ${list[i - 1]?.personName || "— (أول مختار)"} · بعده: ${list[i + 1]?.personName || "— (لا يوجد)"}`));
+      if (x.notes) c.appendChild(h("div", "", x.notes));
+      if (canEdit) {
+        const r = h("div"); r.style.marginTop = "8px";
+        const b = (t, fn, k = "") => { const e = h("button", "btn " + k, t); e.onclick = fn; r.append(e, " "); };
+        if (i) b("↑", () => move(i, i - 1)); if (i < list.length - 1) b("↓", () => move(i, i + 1));
+        b("السنوات", async () => { const f = await inputUI("سنوات التعيين", "من سنة", x.fromYear || "", "number"), t = await inputUI("سنوات التعيين", "إلى سنة (فارغ = الحالي)", x.toYear || "", "number"); if (f === null || t === null) return; await updateDoc(doc(db, "mukhtars", x.id), { fromYear: +f || null, toYear: +t || null }); load(); });
+        if (isAdmin) b("حذف", async () => { if (await confirmUI("حذف المختار", "هل تريد حذف " + x.personName + " من القائمة؟", true)) { await deleteDoc(doc(db, "mukhtars", x.id)); await renum(list.filter((y) => y.id !== x.id).map((y) => y.id)); load(); } }, "red");
+        c.appendChild(r);
+      }
+      box.appendChild(c);
+    });
+  }
+  async function renum(ids) { const b = writeBatch(db); ids.forEach((id, i) => b.update(doc(db, "mukhtars", id), { order: i + 1 })); await b.commit(); }
+  async function move(a, b) { const ids = list.map((x) => x.id); [ids[a], ids[b]] = [ids[b], ids[a]]; await renum(ids); load(); }
+  $("add").onclick = async () => {
+    const m = map.get($("p").value); if (!m) return ($("st").textContent = "اختر شخصاً من القائمة المقترحة");
+    if (list.some((x) => x.personId === m.id)) return ($("st").textContent = "هذا الشخص مسجّل مسبقاً");
+    $("add").disabled = true;
+    try {
+      const r = await addDoc(collection(db, "mukhtars"), { personId: m.id, personName: m.fullName || m.firstName, order: list.length + 1, fromYear: +$("fy").value || null, toYear: +$("ty").value || null, notes: $("nt").value.trim(), createdBy: S.user.uid, createdAt: serverTimestamp() });
+      const ids = list.map((x) => x.id), p = $("pos").value; p === "end" ? ids.push(r.id) : ids.splice(+p, 0, r.id);
+      await renum(ids); $("p").value = $("fy").value = $("ty").value = $("nt").value = ""; $("st").textContent = "تمت الإضافة ✓"; await load();
+    } catch (e) { $("st").textContent = "تعذّر: " + e.message; }
+    $("add").disabled = false;
+  };
+  await load();
+}
+if (S.user && !S.bad && rank[S.role] >= 1) main().catch((e) => { $("list").textContent = "تعذّر التحميل: " + (e.code || e.message); });
+</script></body></html>
