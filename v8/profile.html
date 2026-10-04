@@ -1,0 +1,45 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1020"><title>الملف الشخصي</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+import { boot, h, $, members, avatar, nm, life, fmtD, isF, fail, toast, confirmUI, rank, copyTracked, db, doc, collection, getDocs, writeBatch, arrayRemove } from "./app.js";
+const S = await boot();
+async function run() {
+  const id = new URLSearchParams(location.search).get("id"), all = await members(), main = $("main"), m = all.find((p) => p.id === id);
+  if (!m) { main.replaceChildren(h("div", "err", "الشخص غير موجود.")); return; }
+  const by = new Map(all.map((p) => [p.id, p])), father = by.get(m.fatherId), mother = by.get(m.motherId), spouses = (m.spouseIds || []).map((x) => by.get(x)).filter(Boolean);
+  const sibs = all.filter((x) => x.id !== id && ((m.fatherId && x.fatherId === m.fatherId) || (m.motherId && x.motherId === m.motherId)));
+  const kids = all.filter((x) => x.fatherId === id || x.motherId === id), ed = rank[S.role] >= 2;
+  let mk = []; try { mk = (await getDocs(collection(db, "mukhtars"))).docs.map((d) => d.data()).sort((a, b) => a.order - b.order); } catch (e) {}
+  document.title = nm(m); main.replaceChildren();
+  const hero = h("div", "panel"); hero.style.textAlign = "center"; hero.appendChild(avatar(m, "big")); hero.firstChild.style.margin = "0 auto 8px";
+  const t = h("h1", "", nm(m)); t.style.cssText = "margin:6px 0;color:#d4af37"; hero.appendChild(t);
+  hero.appendChild(h("div", "mut", [life(m), isF(m) ? "أنثى" : "ذكر", m.isAlive === false ? "رحمه الله" : ""].filter(Boolean).join(" · ")));
+  const tg = h("div"); tg.style.marginTop = "8px"; (m.allTags || m.tags || []).forEach((x) => tg.append(h("span", "chip" + ((m.tags || []).includes(x) ? " own" : ""), x), " ")); hero.appendChild(tg);
+  const mi = mk.findIndex((x) => x.personId === id);
+  if (mi >= 0) { const b = h("div", "panel"); b.style.cssText = "margin-top:10px;border-color:#d4af3788"; b.append(h("b", "", `⭐ المختار رقم ${mi + 1}`), h("div", "mut", "قبله: " + (mk[mi - 1]?.personName || "—") + " · بعده: " + (mk[mi + 1]?.personName || "—"))); hero.appendChild(b); }
+  const act = h("div", "row"); act.style.cssText = "justify-content:center;margin-top:12px";
+  const btn = (txt, fn, c = "") => { const e = h("button", "btn " + c, txt); e.onclick = fn; act.appendChild(e); return e; };
+  btn("🌳 في الشجرة", () => (location.href = "family_tree.html?root=" + id));
+  if (ed) btn("✏️ تعديل", () => (location.href = "add_edit_person.html?id=" + id), "gold");
+  if (!S.user.isAnonymous) { btn("🔗 رابط متتبَّع", async () => { try { await copyTracked(S, "profile.html", "id=" + id); toast("نُسخ رابط صالح 7 أيام"); } catch (e) { toast("تعذّر النسخ"); } }); btn("🔐 تغيير كلمة المرور", async () => { try { const { sendPasswordResetEmail } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"); await sendPasswordResetEmail(S.user.auth || S.user.email ? (await import("./lib.js")).auth : null, S.user.email); toast("تم إرسال رابط تغيير كلمة المرور إلى بريدك"); } catch (e) { toast("تعذر إرسال الرابط"); } }); }
+  if (S.role === "admin") btn("🗑 حذف", async () => {
+    if (!await confirmUI("حذف الشخص", "هل تريد حذف " + nm(m) + " نهائيًا؟", true)) return;
+    try {
+      const b = writeBatch(db); b.delete(doc(db, "familyMembers", id));
+      [m.fatherId, m.motherId].forEach((p) => by.has(p) && b.update(doc(db, "familyMembers", p), { childrenIds: arrayRemove(id) }));
+      spouses.forEach((s) => b.update(doc(db, "familyMembers", s.id), { spouseIds: arrayRemove(id) }));
+      kids.forEach((k) => b.update(doc(db, "familyMembers", k.id), k.fatherId === id ? { fatherId: null } : { motherId: null }));
+      await b.commit(); location.replace("index.html");
+    } catch (e) { fail(e); }
+  }, "red");
+  hero.appendChild(act); main.appendChild(hero);
+  const info = h("div", "panel"); info.appendChild(h("h2", "", "البيانات"));
+  const kv = (k, v, href) => { if (!v) return; const r = h("div", "kv"), s = h("span"); if (href) { const a = h("a", "", v); a.href = href; s.appendChild(a); } else s.textContent = v; r.append(h("span", "", k), s); info.appendChild(r); };
+  kv("تاريخ الميلاد", fmtD(m.birthDate)); kv("تاريخ الوفاة", m.isAlive === false ? fmtD(m.deathDate) : ""); kv("الحالة الاجتماعية", { Single: "أعزب/عزباء", Married: "متزوج/ة", Divorced: "مطلق/ة", Widowed: "أرمل/ة" }[m.maritalStatus] || m.maritalStatus);
+  if (ed) { kv("الجوال", m.phoneNumber, "tel:" + m.phoneNumber); kv("رقم الهوية", m.idNumber); } kv("ملاحظات", m.notes); main.appendChild(info);
+  const sec = (title, arr, extra = []) => { if (!arr.length && !extra.length) return; const p = h("div", "panel"), r = h("div", "rels"); p.appendChild(h("h2", "", title)); arr.forEach((x) => { const a = h("a", "rel", nm(x)); a.href = "profile.html?id=" + x.id; r.appendChild(a); }); extra.forEach((x) => r.appendChild(h("span", "rel", x))); p.appendChild(r); main.appendChild(p); };
+  sec("الوالدان", [father, mother].filter(Boolean), !mother && m.motherName ? [m.motherName + " (غير مسجلة)"] : []);
+  sec("الزوج / الزوجة", spouses, m.manualSpouseNames || []); sec(`الإخوة والأخوات (${sibs.length})`, sibs); sec(`الأبناء (${kids.length})`, kids);
+}
+run().catch(fail);
+</script></body></html>

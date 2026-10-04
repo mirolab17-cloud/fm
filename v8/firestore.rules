@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function acct() { return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role : 'none'; }
+    function role() { return signedIn() && acct() in ['viewer','editor','admin'] ? acct() : 'none'; }
+    function isViewer() { return role() in ['viewer','editor','admin']; }
+    function isEditor() { return role() in ['editor','admin']; }
+    function isAdmin() { return signedIn() && acct() == 'admin'; }
+    function validPerson() { let d=request.resource.data; return d.firstName is string && d.firstName.size()>0 && d.firstName.size()<60 && d.fullName is string && d.fullName.size()<250 && (!('notes' in d) || d.notes==null || d.notes.size()<2000); }
+    function bootstrap() { return exists(/databases/$(database)/documents/settings/bootstrap) && get(/databases/$(database)/documents/settings/bootstrap).data.uid == request.auth.uid; }
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid==uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid==uid && request.resource.data.keys().hasOnly(['email','displayName','phoneNumber','birthDate','idNumber','motherName','verificationStatus','role','permissions','createdAt','lastLoginAt']) && (request.resource.data.role=='pending' || (request.resource.data.role=='admin' && bootstrap()));
+      allow update: if isAdmin() || (signedIn() && request.auth.uid==uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email','displayName','phoneNumber','birthDate','idNumber','motherName','verificationStatus','permissions','lastLoginAt'])) || (signedIn() && request.auth.uid==uid && resource.data.role=='pending' && request.resource.data.role=='admin' && bootstrap() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']));
+      allow delete: if isAdmin();
+    }
+    // لا تُحفظ الهوية في الفهرس؛ يُستخدم SHA-256 فقط للوصول إلى البريد المرتبط.
+    match /loginIndex/{hash} {
+      allow get: if true;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid && request.resource.data.email is string;
+      allow update: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid);
+      allow list, delete: if isAdmin();
+    }
+    match /settings/bootstrap { allow read: if signedIn(); allow create: if signedIn() && request.resource.data.uid==request.auth.uid; }
+    match /familyMembers/{id} { allow read: if isViewer(); allow create,update: if isEditor() && validPerson(); allow delete: if isAdmin(); }
+    match /events/{id} { allow read: if isViewer(); allow create,update: if isEditor() && request.resource.data.title is string && request.resource.data.title.size()>0; allow delete: if isAdmin(); }
+    match /familyMedia/{id} { allow read: if isViewer(); allow create,update: if isEditor(); allow delete: if isAdmin(); }
+    match /familyStories/{id} { allow read: if isViewer(); allow create,update: if isEditor(); allow delete: if isAdmin(); }
+    match /contributions/{id} { allow read: if isAdmin(); allow create: if isViewer(); allow update,delete: if isAdmin(); }
+    match /mukhtars/{id} { allow read: if isViewer(); allow create,update: if isEditor(); allow delete: if isAdmin(); }
+    match /verificationRequests/{id} { allow read: if signedIn() && (request.auth.uid==id || isAdmin()); allow create: if signedIn() && request.auth.uid==id; allow update: if isAdmin(); }
+    match /loginLogs/{id} { allow create: if signedIn() && request.resource.data.uid==request.auth.uid; allow read: if isAdmin(); allow update,delete: if false; }
+    match /auditLogs/{id} { allow read: if isAdmin(); allow create: if isEditor(); allow update,delete: if false; }
+    match /shareLinks/{t} { allow get: if signedIn(); allow list: if isAdmin(); allow create: if isAdmin() || isViewer(); allow update: if isAdmin(); allow delete: if isAdmin(); }
+    match /linkSessions/{u} { allow read,delete: if signedIn() && request.auth.uid==u; allow create: if signedIn() && request.auth.uid==u; }
+    match /linkEvents/{id} { allow create: if signedIn() && request.resource.data.uid==request.auth.uid; allow read: if isAdmin(); }
+    match /settings/{id} { allow read: if isViewer(); allow write: if isAdmin(); }
+    match /{document=**} { allow read,write: if false; }
+  }
+}
