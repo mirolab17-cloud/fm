@@ -1,0 +1,33 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>تصويت العائلة</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, fail, toast, confirmUI, db, doc, collection, getDocs, setDoc, addDoc, updateDoc, deleteDoc, deleteField, Timestamp, serverTimestamp } from "./app.js";
+const S = await boot();
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+async function run() {
+  const main = $("main"), adm = S.role === "admin", me = (S.user.displayName || S.user.email || "عضو").split("@")[0];
+  main.innerHTML = `<div class="top"><div><span class="eyebrow">القرارات</span><h1>🗳️ التصويت</h1><p class="mut">لكل عضو صوت واحد في كل استطلاع، ويمكنه تغييره ما دام الاستطلاع مفتوحًا.</p></div></div>${adm ? `<div class="panel"><h2>استطلاع جديد</h2><label class="l">السؤال *</label><input id="q"><label class="l" style="margin-top:8px">الخيارات (كل خيار في سطر، اثنان على الأقل) *</label><textarea id="o" rows="4"></textarea><label class="l" style="margin-top:8px">آخر موعد للتصويت (اختياري)</label><input id="e" type="date"><button class="btn gold" id="add" style="margin-top:8px">نشر الاستطلاع</button></div>` : ""}<div id="list"></div>`;
+  async function load() {
+    const polls = (await getDocs(collection(db, "polls"))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    await Promise.all(polls.map(async (p) => { try { p.votes = (await getDocs(collection(db, "polls", p.id, "votes"))).docs.map((d) => ({ id: d.id, ...d.data() })); } catch (e) { p.votes = []; } }));
+    const box = $("#list"); box.replaceChildren(); if (!polls.length) box.append(h("div", "panel empty", "لا توجد استطلاعات بعد."));
+    polls.forEach((p) => {
+      const ended = p.endsAt && p.endsAt.toMillis() < Date.now(), open = p.open === true && !ended, mine = p.votes.find((v) => v.id === S.user.uid), total = p.votes.length;
+      const el = h("div", "panel"); el.innerHTML = `<h2>${esc(p.question)}</h2><div class="mut small">${open ? "🟢 مفتوح" : "🔒 مغلق"}${p.endsAt ? " · ينتهي " + p.endsAt.toDate().toLocaleDateString("ar-EG") : ""} · ${total} صوت</div>`;
+      (p.options || []).forEach((o, i) => {
+        const n = p.votes.filter((v) => v.choice === i).length, pc = total ? Math.round((n / total) * 100) : 0, row = h("div"); row.style.margin = "8px 0";
+        row.innerHTML = `<div class="row" style="justify-content:space-between"><span>${esc(o)}${mine && mine.choice === i ? " ✅" : ""}</span><b>${pc}% (${n})</b></div><div style="height:10px;background:#0002;border-radius:8px;overflow:hidden"><div style="height:100%;width:${pc}%;background:linear-gradient(90deg,#d4af37,#b8860b)"></div></div>`;
+        if (open) { const b = h("button", "btn" + (mine && mine.choice === i ? " gold" : ""), mine && mine.choice === i ? "صوتك" : "صوّت"); b.style.marginTop = "6px"; b.onclick = async () => { try { await setDoc(doc(db, "polls", p.id, "votes", S.user.uid), { choice: i, name: me, at: serverTimestamp() }); toast("تم تسجيل صوتك ✓"); load(); } catch (e) { fail(e); } }; row.append(b); }
+        el.append(row);
+      });
+      if (adm) { const r = h("div", "row"), t = h("button", "btn", open ? "🔒 إغلاق" : "🔓 فتح"); t.onclick = async () => { try { await updateDoc(doc(db, "polls", p.id), { open: !open, endsAt: deleteField() }); load(); } catch (e) { fail(e); } }; const x = h("button", "btn red", "🗑 حذف"); x.onclick = async () => { if (!await confirmUI("حذف الاستطلاع", "سيُحذف الاستطلاع.", true)) return; try { await deleteDoc(doc(db, "polls", p.id)); load(); } catch (e) { fail(e); } }; r.append(t, x); el.append(r); }
+      box.append(el);
+    });
+  }
+  if (adm) $("#add").onclick = async () => { try { const q = $("#q").value.trim(), o = $("#o").value.split("\n").map((x) => x.trim()).filter(Boolean); if (!q || o.length < 2) return toast("اكتب السؤال وخيارين على الأقل"); const d = { question: q, options: o, open: true, createdBy: S.user.uid, createdAt: serverTimestamp() }; if ($("#e").value) d.endsAt = Timestamp.fromDate(new Date($("#e").value + "T23:59:59")); await addDoc(collection(db, "polls"), d); $("#q").value = $("#o").value = $("#e").value = ""; toast("تم النشر ✓"); load(); } catch (e) { fail(e); } };
+  await load();
+}
+run().catch(fail);
+
+</script></body></html>

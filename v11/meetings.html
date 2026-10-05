@@ -1,0 +1,42 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>اجتماعات العائلة</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, fail, toast, confirmUI, db, doc, collection, getDocs, setDoc, addDoc, deleteDoc, Timestamp, serverTimestamp, rank } from "./app.js";
+import { downloadFile } from "./fx.js";
+const S = await boot();
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ST = { yes: "✅ سأحضر", maybe: "🤔 ربما", no: "❌ أعتذر" };
+const pad = (n) => String(n).padStart(2, "0"), ics = (d) => d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) + "T" + pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + "00Z";
+async function run() {
+  const main = $("main"), ed = rank[S.role] >= 2, me = (S.user.displayName || S.user.email || "عضو").split("@")[0];
+  main.innerHTML = `<div class="top"><div><span class="eyebrow">التنظيم</span><h1>🗓️ اجتماعات العائلة</h1><p class="mut">مواعيد اللقاءات مع تأكيد الحضور.</p></div></div>${ed ? `<div class="panel"><h2>إضافة اجتماع</h2><div class="g"><div><label class="l">العنوان *</label><input id="t"></div><div><label class="l">الموعد *</label><input id="d" type="datetime-local"></div><div><label class="l">المكان</label><input id="p"></div></div><label class="l" style="margin-top:8px">ملاحظات</label><textarea id="n" rows="2"></textarea><button class="btn gold" id="add" style="margin-top:8px">إضافة</button></div>` : ""}<div id="list"></div>`;
+  let list = [];
+  async function load() {
+    list = (await getDocs(collection(db, "meetings"))).docs.map((d) => ({ id: d.id, ...d.data() }));
+    await Promise.all(list.map(async (m) => { try { m.rs = (await getDocs(collection(db, "meetings", m.id, "rsvp"))).docs.map((d) => ({ id: d.id, ...d.data() })); } catch (e) { m.rs = []; } }));
+    draw();
+  }
+  function draw() {
+    const box = $("#list"), now = Date.now(), up = list.filter((m) => (m.date?.toMillis?.() || 0) >= now - 6 * 3600e3).sort((a, b) => a.date.toMillis() - b.date.toMillis()), past = list.filter((m) => !up.includes(m)).sort((a, b) => b.date.toMillis() - a.date.toMillis());
+    box.replaceChildren();
+    const card = (m, isPast) => {
+      const d = m.date.toDate(), mine = (m.rs || []).find((r) => r.id === S.user.uid), c = (k) => (m.rs || []).filter((r) => r.status === k);
+      const el = h("div", "panel"); el.innerHTML = `<h2>${esc(m.title)}</h2><div class="mut">📅 ${d.toLocaleString("ar-EG", { dateStyle: "full", timeStyle: "short" })}${m.place ? " · 📍 " + esc(m.place) : ""}</div>${m.notes ? `<p>${esc(m.notes)}</p>` : ""}<div class="row" style="margin:8px 0"><span class="tag ok">✅ ${c("yes").length}</span><span class="tag">🤔 ${c("maybe").length}</span><span class="tag no">❌ ${c("no").length}</span></div>`;
+      const row = h("div", "row");
+      if (!isPast) Object.entries(ST).forEach(([k, t]) => { const b = h("button", "btn" + (mine && mine.status === k ? " gold" : ""), t); b.onclick = async () => { try { await setDoc(doc(db, "meetings", m.id, "rsvp", S.user.uid), { status: k, name: me, at: serverTimestamp() }); toast("تم تسجيل ردّك ✓"); load(); } catch (e) { fail(e); } }; row.append(b); });
+      const cal = h("button", "btn", "📆 أضف للتقويم"); cal.onclick = () => downloadFile(["BEGIN:VCALENDAR", "VERSION:2.0", "BEGIN:VEVENT", "UID:" + m.id + "@family", "DTSTAMP:" + ics(new Date()), "DTSTART:" + ics(d), "DTEND:" + ics(new Date(d.getTime() + 2 * 3600e3)), "SUMMARY:" + (m.title || "").replace(/\n/g, " "), "LOCATION:" + (m.place || "").replace(/\n/g, " "), "END:VEVENT", "END:VCALENDAR"].join("\r\n"), "meeting.ics", "text/calendar"); row.append(cal);
+      if (c("yes").length) { const w = h("details"); w.innerHTML = "<summary>من سيحضر</summary><div class=\"mut\">" + c("yes").map((r) => esc(r.name)).join("، ") + "</div>"; el.append(w); }
+      if (S.role === "admin") { const x = h("button", "btn red", "🗑 حذف"); x.onclick = async () => { if (!await confirmUI("حذف الاجتماع", "حذف «" + m.title + "»؟", true)) return; try { await deleteDoc(doc(db, "meetings", m.id)); load(); } catch (e) { fail(e); } }; row.append(x); }
+      el.append(row); return el;
+    };
+    if (!up.length && !past.length) box.append(h("div", "panel empty", "لا توجد اجتماعات بعد."));
+    if (up.length) { box.append(h("h2", "", "القادمة")); up.forEach((m) => box.append(card(m, false))); }
+    if (past.length) { box.append(h("h2", "", "السابقة")); past.slice(0, 10).forEach((m) => box.append(card(m, true))); }
+  }
+  if (ed) $("#add").onclick = async () => { try { const t = $("#t").value.trim(), d = $("#d").value; if (!t || !d) return toast("العنوان والموعد مطلوبان"); await addDoc(collection(db, "meetings"), { title: t, date: Timestamp.fromDate(new Date(d)), place: $("#p").value.trim(), notes: $("#n").value.trim(), createdBy: S.user.uid, createdAt: serverTimestamp() }); $("#t").value = $("#p").value = $("#n").value = ""; toast("تمت الإضافة ✓"); load(); } catch (e) { fail(e); } };
+  await load();
+}
+run().catch(fail);
+
+</script></body></html>

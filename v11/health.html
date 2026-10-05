@@ -1,0 +1,55 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>صحة النظام</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="admin"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, members, nm, norm, toD, fail, toast, confirmUI, db, doc, collection, getDocs, writeBatch, serverTimestamp, deleteField } from "./app.js";
+import { loadPrivate, ageOf } from "./fx.js";
+const S = await boot();
+async function run() {
+  const main = $("main"), t0 = performance.now(), all = await members(), ms = Math.round(performance.now() - t0), by = new Map(all.map((m) => [m.id, m])), priv = await loadPrivate(S);
+  let users = []; try { users = (await getDocs(collection(db, "users"))).docs.map((d) => d.data()); } catch (e) {}
+  const hasP = (m) => priv.get(m.id)?.phoneNumber || m.phoneNumber, E = (a) => (a || []);
+  const gname = new Map(); all.forEach((m) => { const k = norm(m.fullName || ""); if (k) gname.set(k, (gname.get(k) || 0) + 1); });
+  const yrs = (m) => { const d = toD(m.birthDate); return d && !isNaN(d) ? d : null; };
+  const checks = [
+    ["بيانات ناقصة", [["بلا تاريخ ميلاد", (m) => !m.birthDate], ["بلا جنس", (m) => !m.gender], ["بلا أب مسجّل أو اسم أب", (m) => !m.fatherId && !m.fatherName], ["بلا أم مسجّلة أو اسم أم", (m) => !m.motherId && !m.motherName], ["بلا فرع", (m) => !(m.allTags || m.tags || []).length], ["بلا صورة", (m) => !m.photoUrl && !m.photoURL], ["بلا رقم جوال (البالغون الأحياء)", (m) => m.isAlive !== false && (ageOf(m) ?? 0) >= 18 && !hasP(m)]]],
+    ["تعارضات منطقية", [["متوفى بلا تاريخ وفاة", (m) => m.isAlive === false && !m.deathDate], ["تاريخ الوفاة قبل الميلاد", (m) => yrs(m) && toD(m.deathDate) && toD(m.deathDate) < yrs(m)], ["ميلاد في المستقبل", (m) => yrs(m) && yrs(m) > new Date()], ["أكبر من أبيه/أمه أو فارق أقل من 12 سنة", (m) => [by.get(m.fatherId), by.get(m.motherId)].some((p) => p && yrs(p) && yrs(m) && (yrs(m) - yrs(p)) / 31557600000 < 12)]]],
+    ["الروابط", [["أب/أم/زوج/ابن محذوف أو غير موجود", (m) => (m.fatherId && !by.has(m.fatherId)) || (m.motherId && !by.has(m.motherId)) || E(m.childrenIds).some((x) => !by.has(x)) || E(m.spouseIds).some((x) => !by.has(x))], ["زواج غير متبادل", (m) => E(m.spouseIds).some((s) => by.has(s) && !E(by.get(s).spouseIds).includes(m.id))], ["أب/أم لا يضمّه في قائمة أبنائه", (m) => [m.fatherId, m.motherId].some((p) => p && by.has(p) && !E(by.get(p).childrenIds).includes(m.id))], ["يضم في أبنائه من ليس ابنه", (m) => E(m.childrenIds).some((c) => by.has(c) && by.get(c).fatherId !== m.id && by.get(c).motherId !== m.id)], ["اسم مكرر", (m) => gname.get(norm(m.fullName || "")) > 1]]],
+  ];
+  const core = all.length ? Math.round((all.reduce((a, m) => a + [m.birthDate, m.gender, m.fatherId || m.fatherName, m.motherId || m.motherName, (m.allTags || m.tags || []).length].filter(Boolean).length, 0) / (all.length * 5)) * 100) : 100;
+  const migr = all.filter((m) => m.phoneNumber || m.idNumber);
+  main.innerHTML = `<div class="top"><div><span class="eyebrow">لوحة المدير</span><h1>🩺 صحة النظام</h1><p class="mut">فحص شامل للبيانات والأمان والأداء.</p></div></div>
+  <div class="stats"><div class="stat"><b>${all.length}</b><span class="mut">الأفراد</span></div><div class="stat"><b>${core}%</b><span class="mut">اكتمال البيانات الأساسية</span></div><div class="stat"><b>${ms} ms</b><span class="mut">زمن تحميل الأفراد</span></div><div class="stat"><b>${users.length}</b><span class="mut">الحسابات</span></div><div class="stat"><b>${users.filter((u) => u.role === "pending").length}</b><span class="mut">طلبات معلقة</span></div></div>
+  <div class="panel"><h2>🔐 حماية الجوال والهوية</h2><p>${migr.length ? `⚠️ يوجد <b>${migr.length}</b> سجل ما زالت أرقام الجوال/الهوية فيه ضمن بيانات يقرؤها كل الأعضاء. انقلها إلى المخزن الخاص (للمحررين فقط).` : "✅ كل الأرقام الحساسة محفوظة في المخزن الخاص."}</p>${migr.length ? '<button class="btn gold" id="mg">🔒 نقل إلى المخزن الخاص الآن</button>' : ""}</div>
+  <div class="panel"><h2>🔧 إصلاح الروابط تلقائيًا</h2><p class="mut">يعيد بناء قوائم الأبناء من حقول الأب/الأم، ويجعل الزواج متبادلًا، ويحذف المراجع المكسورة. لا يغيّر الأسماء ولا التواريخ.</p><div class="row"><button class="btn" id="fx">🔍 معاينة الإصلاح</button><span id="fxo" class="mut"></span></div></div><div id="ck"></div>
+  <div class="panel"><a class="btn" href="merge.html">🧩 دمج المكررين</a> <a class="btn" href="backup.html">💾 النسخ الاحتياطي</a> <a class="btn" href="report.html">📈 التقرير الشهري</a></div>`;
+  const ck = $("#ck");
+  checks.forEach(([title, list]) => {
+    const p = h("div", "panel"); p.append(h("h2", "", title));
+    list.forEach(([label, fn]) => {
+      const r = all.filter(fn), d = h("details"); d.innerHTML = `<summary>${r.length ? "⚠️" : "✅"} ${label}: <b>${r.length}</b></summary>`;
+      const box = h("div", "rels"); r.slice(0, 60).forEach((m) => { const a = h("a", "rel", nm(m)); a.href = "profile.html?id=" + m.id; box.append(a); }); if (r.length > 60) box.append(h("span", "mut", "… و" + (r.length - 60) + " آخرون")); d.append(box); p.append(d);
+    });
+    ck.append(p);
+  });
+  if (migr.length) $("#mg").onclick = async () => {
+    if (!await confirmUI("نقل الأرقام الحساسة", "سيُنقل الجوال ورقم الهوية من " + migr.length + " سجل إلى مخزن خاص بالمحررين.")) return;
+    try { for (let i = 0; i < migr.length; i += 190) { const b = writeBatch(db); migr.slice(i, i + 190).forEach((m) => { const p = priv.get(m.id) || {}; b.set(doc(db, "familyPrivate", m.id), { phoneNumber: p.phoneNumber || m.phoneNumber || "", idNumber: p.idNumber || m.idNumber || "", updatedAt: serverTimestamp() }, { merge: true }); b.update(doc(db, "familyMembers", m.id), { phoneNumber: deleteField(), idNumber: deleteField() }); }); await b.commit(); } toast("تم النقل ✓"); setTimeout(() => location.reload(), 700); } catch (e) { fail(e); }
+  };
+  let fixes = null;
+  $("#fx").onclick = async () => {
+    if (fixes) { if (!fixes.length) return; if (!await confirmUI("تطبيق الإصلاح", "سيتم تعديل روابط " + fixes.length + " سجل.")) return; try { for (let i = 0; i < fixes.length; i += 380) { const b = writeBatch(db); fixes.slice(i, i + 380).forEach(([id, f]) => b.update(doc(db, "familyMembers", id), { ...f, updatedAt: serverTimestamp(), updatedBy: S.user.uid })); await b.commit(); } toast("تم الإصلاح ✓"); setTimeout(() => location.reload(), 700); } catch (e) { fail(e); } return; }
+    fixes = []; const kids = new Map(); all.forEach((m) => [m.fatherId, m.motherId].forEach((p) => { if (p && by.has(p)) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(m.id); } }));
+    const same = (a, b) => JSON.stringify([...(a || [])].sort()) === JSON.stringify([...(b || [])].sort());
+    all.forEach((m) => {
+      const f = {}; if (m.fatherId && !by.has(m.fatherId)) f.fatherId = null; if (m.motherId && !by.has(m.motherId)) f.motherId = null;
+      const ch = kids.get(m.id) || []; if (!same(ch, m.childrenIds)) f.childrenIds = ch;
+      const sp = [...new Set(E(m.spouseIds).filter((x) => by.has(x) && x !== m.id))]; by.forEach((o) => { if (E(o.spouseIds).includes(m.id) && o.id !== m.id && !sp.includes(o.id)) sp.push(o.id); }); if (!same(sp, m.spouseIds)) f.spouseIds = sp;
+      if (Object.keys(f).length) fixes.push([m.id, f]);
+    });
+    $("#fxo").textContent = fixes.length ? "سيُعدَّل " + fixes.length + " سجل. اضغط الزر مرة أخرى للتطبيق." : "✅ لا توجد روابط تحتاج إصلاحًا."; $("#fx").textContent = fixes.length ? "✅ تطبيق الإصلاح" : "🔍 معاينة الإصلاح";
+  };
+}
+run().catch(fail);
+
+</script></body></html>

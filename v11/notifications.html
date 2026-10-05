@@ -1,0 +1,22 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>التنبيهات</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, members, nm, fail, toast, db, collection, getDocs } from "./app.js";
+import { nextBirthdays, browserNotify } from "./fx.js";
+const S = await boot();
+async function run() {
+  const main = $("main"), all = await members(); let meetings = [];
+  try { meetings = (await getDocs(collection(db, "meetings"))).docs.map((d) => d.data()).filter((m) => m.date && m.date.toMillis() > Date.now() && m.date.toMillis() < Date.now() + 14 * 864e5).sort((a, b) => a.date.toMillis() - b.date.toMillis()); } catch (e) {}
+  const bd = nextBirthdays(all, 14), perm = "Notification" in window ? Notification.permission : "unsupported";
+  main.innerHTML = `<div class="top"><div><span class="eyebrow">لا تفوّت مناسبة</span><h1>🔔 التنبيهات</h1></div></div><div class="panel"><h2>تنبيهات المتصفح</h2><p class="mut">عند تفعيلها يُظهر المتصفح إشعارًا بأعياد ميلاد اليوم والاجتماعات القريبة <b>عند فتح الموقع</b>. الحالة الحالية: <b id="st">${perm === "granted" ? "مفعّلة ✅" : perm === "denied" ? "محظورة من إعدادات المتصفح ❌" : perm === "unsupported" ? "غير مدعومة" : "غير مفعّلة"}</b></p><button class="btn gold" id="en">تفعيل التنبيهات</button><p class="mut small">الإرسال بالبريد أو الإشعار والموقع مغلق يحتاج خادمًا (Cloud Functions) غير مفعّل في هذا الإصدار.</p></div><div class="panel"><h2>🎂 أعياد ميلاد خلال 14 يومًا</h2><div id="b"></div></div><div class="panel"><h2>🗓️ اجتماعات قادمة</h2><div id="m"></div></div>`;
+  $("#en").onclick = async () => { if (!("Notification" in window)) return toast("متصفحك لا يدعم التنبيهات"); const r = await Notification.requestPermission(); toast(r === "granted" ? "تم التفعيل ✓" : "لم يُمنح الإذن"); location.reload(); };
+  const b = $("#b"); if (!bd.length) b.append(h("div", "mut", "لا توجد أعياد ميلاد قريبة."));
+  bd.forEach((x) => { const a = h("a", "kv"); a.href = "profile.html?id=" + x.m.id; a.style.textDecoration = "none"; a.append(h("span", "", (x.left === 0 ? "🎉 اليوم · " : x.left === 1 ? "غدًا · " : "بعد " + x.left + " أيام · ") + nm(x.m)), h("span", "mut", x.turns + " سنة")); b.append(a); });
+  const m = $("#m"); if (!meetings.length) m.append(h("div", "mut", "لا توجد اجتماعات قريبة."));
+  meetings.forEach((x) => { const r = h("div", "kv"); r.append(h("span", "", x.title), h("span", "mut", x.date.toDate().toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" }))); m.append(r); });
+  const today = bd.filter((x) => x.left === 0); if (today.length) browserNotify("🎂 أعياد ميلاد اليوم", today.map((x) => nm(x.m)).join("، "), "bday");
+}
+run().catch(fail);
+
+</script></body></html>
