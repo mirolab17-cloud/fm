@@ -1,0 +1,30 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>شجرة من منظور شخص</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, members, picker, nm, pcard, isF, fail } from "./app.js";
+const S = await boot();
+async function run() {
+  const all = await members(), main = $("main"), by = new Map(all.map((m) => [m.id, m])), pk = picker(all);
+  const id = new URLSearchParams(location.search).get("id"), me = by.get(id);
+  main.innerHTML = '<div class="top"><div><span class="eyebrow">منظور شخصي</span><h1>🧭 شجرة من منظور شخص</h1><p class="mut">اختر شخصًا لترى أجداده ووالديه وإخوته وأبناءه وأحفاده من وجهة نظره.</p></div></div><div class="panel"><div class="row"><input id="p" list="' + pk.dl.id + '" placeholder="اكتب الاسم واختر…" style="flex:1"><button class="btn gold" id="go">عرض</button></div></div><div id="out"></div>';
+  main.appendChild(pk.dl);
+  $("#go").onclick = () => { const p = pk.get($("#p").value); if (!p) return; location.href = "perspective.html?id=" + p.id; };
+  if (!me) { $("#out").innerHTML = '<div class="panel empty">اختر شخصًا من القائمة للبدء.</div>'; return; }
+  $("#p").value = pk.lab(me);
+  const out = $("#out"), g = (ids) => ids.map((x) => by.get(x)).filter(Boolean), uniq = (a) => [...new Map(a.map((x) => [x.id, x])).values()];
+  const father = by.get(me.fatherId), mother = by.get(me.motherId);
+  const gps = uniq([father, mother].filter(Boolean).flatMap((p) => g([p.fatherId, p.motherId])));
+  const sibs = all.filter((x) => x.id !== me.id && ((me.fatherId && x.fatherId === me.fatherId) || (me.motherId && x.motherId === me.motherId)));
+  const spouses = g(me.spouseIds || []), kids = all.filter((x) => x.fatherId === me.id || x.motherId === me.id), gk = uniq(kids.flatMap((k) => all.filter((x) => x.fatherId === k.id || x.motherId === k.id)));
+  const lvl = (title, list, cls = "") => { if (!list.length) return; const p = h("section", "panel"); p.appendChild(h("h2", "", title + " (" + list.length + ")")); const gr = h("div", "grid"); list.forEach((m) => gr.appendChild(pcard(m))); p.appendChild(gr); out.appendChild(p); const a = h("div", "mut", "⬇"); a.style.cssText = "text-align:center;font-size:22px"; out.appendChild(a); };
+  lvl("👴 الأجداد والجدات", gps); lvl("👨‍👩‍👦 الوالدان", [father, mother].filter(Boolean));
+  const mine = h("section", "panel"); mine.style.borderColor = "#d4af37"; mine.appendChild(h("h2", "", "⭐ " + nm(me))); const gr = h("div", "grid"); gr.appendChild(pcard(me)); spouses.forEach((s) => gr.appendChild(pcard(s))); mine.appendChild(gr);
+  const a2 = h("a", "btn", "🌳 افتح في الشجرة الكاملة"); a2.href = "family_tree.html?root=" + me.id; mine.appendChild(a2); out.appendChild(mine);
+  out.appendChild(Object.assign(h("div", "mut", "⬇"), { style: "text-align:center;font-size:22px" }));
+  lvl("👫 الإخوة والأخوات", sibs); lvl("👶 الأبناء", kids); lvl("🧒 الأحفاد", gk);
+  if (!father && !mother && !sibs.length && !kids.length && !spouses.length) out.appendChild(h("div", "panel empty", "لا توجد علاقات مسجلة لهذا الشخص بعد."));
+}
+run().catch(fail);
+
+</script></body></html>

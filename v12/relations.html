@@ -1,0 +1,98 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>ربط الأعضاء</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head><body data-require="editor"><main class="page"><div class="empty">جاري التحميل…</div></main><script type="module">
+import{boot,h,$,members,picker,nm,isF,fail,toast,confirmUI,db,doc,collection,addDoc,updateDoc,Timestamp,writeBatch,serverTimestamp,arrayUnion,arrayRemove,propagateTags}from"./app.js";import{bump}from"./fx.js";
+const S=await boot();
+const RELS=[["father","هو الأب لـ"],["mother","هي الأم لـ"],["child","هو/هي ابن/ابنة لـ"],["spouse","هو/هي زوج/زوجة لـ"],["sibling","هو/هي أخ/أخت لـ"],["unspouse","لم يعد متزوجًا من"],["unparent","لم يعد ابنًا/ابنة لـ"]];
+let people=[],byId=new Map(),pk,bs=[],current=null,hist=[];
+const N=id=>nm(byId.get(id));
+function isDesc(anc,x){const seen=new Set(),q=[anc];while(q.length){const c=q.shift();if(seen.has(c))continue;seen.add(c);for(const p of people)if((p.fatherId===c||p.motherId===c)&&!seen.has(p.id)){if(p.id===x)return true;q.push(p.id)}}return false}
+function plan(a,rel,list){
+ const ops=[],log=[],errs=[],ov=new Map();
+ const get=(id,f)=>ov.has(id+"."+f)?ov.get(id+"."+f):byId.get(id)[f];
+ const set=(id,f,v)=>{ov.set(id+"."+f,v);ops.push({id,f,op:"set",v})};
+ const add=(id,f,v)=>{const r=get(id,f)||[];if(r.includes(v))return false;ov.set(id+"."+f,[...r,v]);ops.push({id,f,op:"add",v});return true};
+ const rem=(id,f,v)=>{const r=get(id,f)||[];if(!r.includes(v))return false;ov.set(id+"."+f,r.filter(x=>x!==v));ops.push({id,f,op:"remove",v});return true};
+ const spouse=(wife,husband,auto)=>{
+  if(wife===husband)return;const x=add(wife,"spouseIds",husband),y=add(husband,"spouseIds",wife);
+  if(x||y)log.push(`${auto?"(تلقائي) ":""}${N(wife)} ${isF(byId.get(wife))?"أصبحت زوجة":"أصبح زوجًا"} لـ ${N(husband)}`);
+  [wife,husband].forEach(i=>{const s=get(i,"maritalStatus");if(auto?(!s||s==="Single"):s!=="Married")set(i,"maritalStatus","Married")});
+ };
+ const parent=(c,p,field)=>{
+  if(c===p){errs.push("لا يمكن ربط الشخص بنفسه");return}
+  if(isDesc(c,p)){errs.push(`${N(p)} من نسل ${N(c)}، لا يمكن أن يكون أبًا/أمًا له`);return}
+  const old=get(c,field),word=field==="fatherId"?"أبًا":"أمًا";
+  if(old!==p){
+   if(old&&byId.has(old)){rem(old,"childrenIds",c);log.push(`إزالة ${N(c)} من أبناء ${N(old)} (كان مسجّلًا ${word})`)}
+   set(c,field,p);if(field==="motherId")set(c,"motherName",N(p));
+   log.push(`${N(p)} أصبح/ت ${word} لـ ${N(c)}`);
+  }
+  if(add(p,"childrenIds",c)&&old===p)log.push(`تصحيح قائمة أبناء ${N(p)}`);
+  const other=get(c,field==="fatherId"?"motherId":"fatherId");
+  if(other&&other!==p&&byId.has(other))field==="motherId"?spouse(p,other,true):spouse(other,p,true);
+ };
+ if(rel==="child"&&list.length>1)errs.push("اختر شخصًا واحدًا فقط عند «ابن/ابنة لـ»");
+ if(rel==="unparent"&&list.length>1)errs.push("اختر شخصًا واحدًا فقط");
+ if(!errs.length)for(const b of list){
+  if(a===b){errs.push("لا يمكن ربط الشخص بنفسه");break}
+  if(rel==="father"){if(isF(byId.get(a)))errs.push(`${N(a)} مسجّلة أنثى، اختر «الأم»`);else parent(b,a,"fatherId")}
+  else if(rel==="mother"){if(!isF(byId.get(a)))errs.push(`${N(a)} مسجّل ذكرًا، اختر «الأب»`);else parent(b,a,"motherId")}
+  else if(rel==="child")parent(a,b,isF(byId.get(b))?"motherId":"fatherId");
+  else if(rel==="spouse"){const af=isF(byId.get(a));af?spouse(a,b,false):spouse(b,a,false)}
+  else if(rel==="sibling"){const B=byId.get(b);if(!B.fatherId&&!B.motherId){errs.push(`${N(b)} ليس له أب أو أم مسجّلان، اربطه بوالديه أولًا`);continue}
+   for(const f of["fatherId","motherId"])if(B[f]){const mine=get(a,f);if(!mine)parent(a,B[f],f);else if(mine!==B[f])log.push(`تخطّي: ${N(a)} له ${f==="fatherId"?"أب":"أم"} مختلف مسجّل`)}}
+  else if(rel==="unspouse"){const x=rem(a,"spouseIds",b),y=rem(b,"spouseIds",a);log.push(x||y?`إزالة الزواج بين ${N(a)} و${N(b)}`:`لا يوجد زواج مسجّل بين ${N(a)} و${N(b)}`)}
+  else if(rel==="unparent"){let f=false;for(const fld of["fatherId","motherId"])if(get(a,fld)===b){set(a,fld,null);rem(b,"childrenIds",a);f=true;log.push(`فك ارتباط ${N(a)} بـ ${N(b)}`)}if(!f)errs.push(`${N(b)} ليس أبًا/أمًا مسجّلًا لـ ${N(a)}`)}
+ }
+ return{ops,log,errs};
+}
+async function apply(ops){
+ const rm=new Map(),up=new Map();
+ for(const o of ops){
+  if(o.op==="remove"){const m=rm.get(o.id)||{};(m[o.f]=m[o.f]||[]).push(o.v);rm.set(o.id,m)}
+  else{const m=up.get(o.id)||{};if(o.op==="set")m[o.f]={set:o.v};else{const x=m[o.f]||{add:[]};(x.add=x.add||[]).push(o.v);m[o.f]=x}up.set(o.id,m)}
+ }
+ const stamp={updatedAt:serverTimestamp(),updatedBy:S.user.uid};
+ const commit=async(entries)=>{for(let i=0;i<entries.length;i+=400){const b=writeBatch(db);entries.slice(i,i+400).forEach(([id,d])=>b.update(doc(db,"familyMembers",id),{...d,...stamp}));await b.commit()}};
+ if(rm.size)await commit([...rm].map(([id,m])=>[id,Object.fromEntries(Object.entries(m).map(([f,v])=>[f,arrayRemove(...v)]))]));
+ if(up.size)await commit([...up].map(([id,m])=>[id,Object.fromEntries(Object.entries(m).map(([f,x])=>[f,"set"in x?x.set:arrayUnion(...x.add)]))]));
+}
+async function load(){people=await members();byId=new Map(people.map(p=>[p.id,p]));pk=picker(people)}
+async function run(){
+ await load();const main=$("main");
+ main.innerHTML=`<div class="top"><div><span class="eyebrow">أدوات المدير</span><h1>👪 ربط الأعضاء بسرعة</h1><p class="mut">اختر الشخص والعلاقة ثم الطرف الآخر، وسيُحدَّث كل الطرفين تلقائيًا (الأب/الأم/الأبناء/الأزواج).</p></div></div>
+ <div class="panel"><div class="relrow"><div><label class="l">الشخص (أ)</label><input id="A" autocomplete="off" placeholder="اكتب الاسم واختر…"></div><div><label class="l">العلاقة</label><select id="R">${RELS.map(r=>`<option value="${r[0]}">${r[1]}</option>`).join("")}</select></div><div><label class="l">الطرف الآخر (ب)</label><div class="row" style="flex-wrap:nowrap"><input id="B" autocomplete="off" placeholder="اكتب الاسم واختر…" style="flex:1"><button type="button" class="btn" id="addB">＋</button></div></div></div>
+ <div class="rels" id="chips" style="margin:10px 0"></div>
+ <div class="row"><button class="btn" id="prev">👁 معاينة التغييرات</button><button class="btn gold" id="go" disabled>✅ تنفيذ الربط</button></div>
+ <div id="out" style="margin-top:10px"></div></div>
+ <div class="panel"><h2>💍 زواج من خارج العائلة</h2><p class="mut small">لابنة أو ابن من العائلة تزوج من خارجها: لا تحتاج إنشاء ملف للزوج/الزوجة. اكتب ما تعرفه فقط.</p><div class="g"><div><label class="l">الشخص من العائلة</label><input id="XP" autocomplete="off" placeholder="اكتب الاسم واختر…"></div><div><label class="l">اسم الزوج/الزوجة</label><input id="XN"></div><div><label class="l">عائلته/ها (اختياري)</label><input id="XF"></div><div><label class="l">تاريخ الزواج (اختياري)</label><input id="XD" type="date"></div></div><button class="btn gold" id="XG" style="margin-top:10px">💍 تسجيل الزواج</button></div>
+ <div class="panel"><h2>أشخاص ينقصهم أب أو أم</h2><p class="mut small">اضغط على اسم ليوضع في خانة (أ) مع علاقة «ابن/ابنة لـ».</p><div class="rels" id="miss"></div></div>
+ <div class="panel"><h2>آخر العمليات في هذه الجلسة</h2><div id="hist" class="mut">لا شيء بعد.</div></div>`;
+ const A=$("#A"),B=$("#B"),R=$("#R"),out=$("#out"),go=$("#go");
+ const lists=()=>{[...document.querySelectorAll("datalist")].forEach(d=>d.remove());main.appendChild(pk.dl);A.setAttribute("list",pk.dl.id);B.setAttribute("list",pk.dl.id);$("#XP").setAttribute("list",pk.dl.id)};
+ const chips=()=>{$("#chips").replaceChildren(...bs.map(id=>{const c=h("span","rel rel-chip",N(id)+" ✕");c.onclick=()=>{bs=bs.filter(x=>x!==id);chips();reset()};return c}))};
+ const reset=()=>{current=null;go.disabled=true;out.replaceChildren()};
+ const miss=()=>{const l=people.filter(p=>!p.fatherId||!p.motherId).slice(0,40);$("#miss").replaceChildren(...l.map(p=>{const c=h("span","rel rel-chip",nm(p)+(p.fatherId?"":" · بلا أب")+(p.motherId?"":" · بلا أم"));c.onclick=()=>{A.value=pk.lab(p);R.value="child";bs=[];chips();B.value="";reset();B.focus()};return c}))};
+ const histDraw=()=>{$("#hist").replaceChildren(...(hist.length?hist.map(x=>h("div","",x)):[document.createTextNode("لا شيء بعد.")]))};
+ lists();miss();
+ $("#XG").onclick=async()=>{try{const p=pk.get($("#XP").value);if(!p)return toast("اختر الشخص من القائمة");const n=$("#XN").value.trim();if(!n)return toast("اكتب اسم الزوج/الزوجة");const f=$("#XF").value.trim(),txt=n+(f?" (من عائلة "+f+")":""),d={manualSpouseNames:arrayUnion(txt),maritalStatus:"Married",marriedOutside:true,updatedAt:serverTimestamp(),updatedBy:S.user.uid};if($("#XD").value)d.marriageDate=Timestamp.fromDate(new Date($("#XD").value));await updateDoc(doc(db,"familyMembers",p.id),d);try{await addDoc(collection(db,"auditLogs"),{type:"external-marriage",targetId:p.id,name:nm(p),spouse:txt,by:S.user.uid,at:serverTimestamp()})}catch(e){}bump(S,"links");toast("تم تسجيل الزواج ✓");$("#XP").value=$("#XN").value=$("#XF").value=$("#XD").value="";await load();lists();miss()}catch(e){fail(e)}};
+ $("#addB").onclick=()=>{const p=pk.get(B.value);if(!p)return toast("اختر شخصًا من القائمة المقترحة");if(!bs.includes(p.id))bs.push(p.id);B.value="";chips();reset()};
+ B.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$("#addB").click()}});
+ [A,R].forEach(x=>x.addEventListener("change",reset));
+ $("#prev").onclick=()=>{
+  const a=pk.get(A.value);if(!a)return toast("اختر الشخص (أ) من القائمة");
+  const pb=pk.get(B.value);if(pb&&!bs.includes(pb.id))bs.push(pb.id);B.value="";chips();
+  if(!bs.length)return toast("اختر الطرف الآخر (ب)");
+  const r=plan(a.id,R.value,bs);out.replaceChildren();
+  if(r.errs.length){const e=h("div","err");r.errs.forEach(x=>e.append(h("div","",x)));out.append(e);go.disabled=true;current=null;return}
+  if(!r.ops.length){out.append(h("div","mut","لا توجد تغييرات: العلاقات مسجّلة مسبقًا."));go.disabled=true;current=null;return}
+  const ul=h("ul","changes");r.log.forEach(x=>ul.append(h("li","",x)));out.append(h("b","","سيتم تنفيذ التالي:"),ul);current={ops:r.ops,log:r.log,a:a.id,rel:R.value,bs:[...bs]};go.disabled=false;
+ };
+ go.onclick=async()=>{if(!current)return;go.disabled=true;try{
+  await apply(current.ops);
+  try{await addDoc(collection(db,"auditLogs"),{type:"relation-link",rel:current.rel,a:current.a,b:current.bs,changes:current.log.slice(0,30),by:S.user.uid,at:serverTimestamp()})}catch(e){console.warn(e)}
+  bump(S,"links");hist.unshift(current.log.join(" · "));hist=hist.slice(0,15);toast("تم الربط ✓");
+  bs=[];chips();reset();await load();lists();miss();histDraw();
+  try{await propagateTags(people)}catch(e){console.warn(e)}
+ }catch(e){go.disabled=false;fail(e)}};
+}
+run().catch(fail);
+</script></body></html>

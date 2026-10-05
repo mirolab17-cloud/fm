@@ -1,0 +1,19 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function user() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
+    function role() { return request.auth != null && request.auth.token.firebase.sign_in_provider != 'anonymous' && user().get('disabled', false) != true ? user().role : 'none'; }
+    function safeType() { return request.resource.contentType.matches('image/(jpeg|png|webp|gif)|application/pdf|application/msword|application/vnd\\.openxmlformats-officedocument\\..*|text/plain'); }
+    match /persons/{personId}/{file} {
+      allow read: if role() in ['viewer', 'editor', 'admin'];
+      allow write: if role() in ['editor', 'admin'] && request.resource.size < 3 * 1024 * 1024 && request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+      allow delete: if role() == 'admin';
+    }
+    match /docs/{file} {
+      allow read: if role() in ['viewer', 'editor', 'admin'];
+      allow write: if role() in ['editor', 'admin'] && request.resource.size < 10 * 1024 * 1024 && safeType();
+      allow delete: if role() == 'admin';
+    }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}

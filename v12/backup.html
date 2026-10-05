@@ -1,0 +1,26 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>النسخ الاحتياطي</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="admin"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, fail, toast, confirmUI, db, doc, getDoc, setDoc, serverTimestamp } from "./app.js";
+import { runBackup, restoreBackup } from "./fx.js";
+const S = await boot();
+async function run() {
+  const main = $("main"); let b = {}; try { const s = await getDoc(doc(db, "settings", "backup")); b = s.exists() ? s.data() : {}; } catch (e) {}
+  const last = b.lastAt && b.lastAt.toDate ? b.lastAt.toDate().toLocaleString("ar-EG") : "لم تؤخذ نسخة بعد";
+  main.innerHTML = `<div class="top"><div><span class="eyebrow">حماية البيانات</span><h1>💾 النسخ الاحتياطي</h1></div></div>
+  <div class="panel"><h2>نسخة الآن</h2><p>آخر نسخة: <b>${last}</b></p><button class="btn gold" id="bk">⬇️ تنزيل نسخة كاملة (JSON)</button><p class="mut small">تشمل الأفراد والبيانات الخاصة والأحداث والوثائق والاستطلاعات والاجتماعات والصناديق. لا تشمل الحسابات ولا كلمات المرور. احفظها في مكان آمن.</p></div>
+  <div class="panel"><h2>نسخة أسبوعية تلقائية</h2><label class="chk"><input id="au" type="checkbox" ${b.autoWeekly ? "checked" : ""}> عند فتح المدير للموقع بعد مرور أسبوع على آخر نسخة، تُنزَّل نسخة تلقائيًا</label><p class="mut small">تعمل فقط عند دخولك للموقع (لا يوجد خادم). إن لم تفعّلها يظهر لك تذكير بدل التنزيل.</p></div>
+  <div class="panel"><h2>⚠️ استرجاع من نسخة</h2><p class="mut">يكتب محتوى الملف فوق السجلات الموجودة بنفس المعرّف (لا يحذف شيئًا). استعمله عند حدوث ضياع أو تلف.</p><input id="fl" type="file" accept=".json,application/json"><button class="btn red" id="rs" style="margin-top:8px">استرجاع</button><div id="pg" class="mut" style="margin-top:8px"></div></div>`;
+  $("#bk").onclick = async () => { const x = $("#bk"); x.disabled = true; try { await runBackup(S); toast("تم تنزيل النسخة ✓"); setTimeout(() => location.reload(), 900); } catch (e) { fail(e); } finally { x.disabled = false; } };
+  $("#au").onchange = async () => { try { await setDoc(doc(db, "settings", "backup"), { autoWeekly: $("#au").checked, updatedAt: serverTimestamp() }, { merge: true }); toast("تم الحفظ ✓"); } catch (e) { fail(e); } };
+  $("#rs").onclick = async () => {
+    const f = $("#fl").files[0]; if (!f) return toast("اختر ملف النسخة");
+    let obj; try { obj = JSON.parse(await f.text()); } catch (e) { return toast("الملف ليس JSON صالحًا"); }
+    if (!await confirmUI("تأكيد الاسترجاع", "سيتم استرجاع سجلات من نسخة بتاريخ " + (obj.at || "؟") + ". هل أنت متأكد؟", true)) return;
+    try { const r = await restoreBackup(obj, (c, ok, bad) => { $("#pg").textContent = "جاري… " + c + " — نجح " + ok + " / فشل " + bad; }); toast("اكتمل: " + r.ok + " سجل" + (r.bad ? "، فشل " + r.bad : "")); } catch (e) { fail(e); }
+  };
+}
+run().catch(fail);
+
+</script></body></html>

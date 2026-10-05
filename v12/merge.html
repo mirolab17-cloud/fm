@@ -1,0 +1,77 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>دمج المكررين</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="admin"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, members, nm, norm, fail, toast, confirmUI, db, doc, collection, addDoc, writeBatch, serverTimestamp, propagateTags } from "./app.js";
+import { loadPrivate, ageOf } from "./fx.js";
+const S = await boot();
+const FILL = ["motherName", "fatherName", "grandFatherName", "familyName", "gender", "birthDate", "deathDate", "photoUrl", "notes", "maritalStatus", "marriageDate", "displacedPlace", "campName", "residence", "coords", "fatherId", "motherId"];
+const IGN = "family-merge-ignored";
+let all = [], by = new Map(), priv = new Map(), ignored = new Set(JSON.parse(localStorage.getItem(IGN) || "[]"));
+async function load() { all = await members(); by = new Map(all.map((m) => [m.id, m])); priv = await loadPrivate(S); }
+const anc = (id) => { const s = new Set(); let fr = [id]; while (fr.length) { const n = []; for (const x of fr) { const m = by.get(x); if (!m) continue; for (const p of [m.fatherId, m.motherId]) if (p && !s.has(p)) { s.add(p); n.push(p); } } fr = n; } return s; };
+const groups = () => { const g = new Map(); all.forEach((m) => { const k = norm(m.fullName || ""); if (!k) return; if (!g.has(k)) g.set(k, []); g.get(k).push(m); }); return [...g.entries()].filter(([k, l]) => l.length > 1 && !ignored.has(k)); };
+const score = (m) => FILL.filter((f) => m[f]).length + (m.childrenIds || []).length + (m.spouseIds || []).length + (m.photoUrl ? 1 : 0);
+function plan(keepId, dupId) {
+  const keep = by.get(keepId), dup = by.get(dupId);
+  if (anc(keepId).has(dupId) || anc(dupId).has(keepId)) throw Error("لا يمكن دمج " + nm(dup) + " لأن أحدهما أب أو جد للآخر، فهما شخصان مختلفان.");
+  if ((keep.spouseIds || []).includes(dupId) || (dup.spouseIds || []).includes(keepId)) throw Error("هذان زوجان، لا يمكن دمجهما.");
+  const U = new Map(), up = (id) => { if (!U.has(id)) U.set(id, {}); return U.get(id); }, rep = (a) => [...new Set((a || []).map((x) => (x === dupId ? keepId : x)))];
+  for (const p of all) {
+    if (p.id === dupId) continue; const f = {};
+    if (p.fatherId === dupId) f.fatherId = keepId; if (p.motherId === dupId) f.motherId = keepId;
+    if ((p.childrenIds || []).includes(dupId)) f.childrenIds = rep(p.childrenIds).filter((x) => x !== p.id);
+    if ((p.spouseIds || []).includes(dupId)) f.spouseIds = rep(p.spouseIds).filter((x) => x !== p.id);
+    if (Object.keys(f).length) Object.assign(up(p.id), f);
+  }
+  const k = up(keepId), empty = (v) => v === undefined || v === null || v === "", un = (a, b) => [...new Set([...(a || []), ...(b || [])])];
+  FILL.forEach((f) => { if (empty(keep[f]) && !empty(dup[f])) k[f] = dup[f]; });
+  if (dup.isAlive === false && keep.isAlive !== false) { k.isAlive = false; if (empty(keep.deathDate) && !empty(dup.deathDate)) k.deathDate = dup.deathDate; }
+  ["displaced", "marriedOutside"].forEach((f) => { if (dup[f] === true && keep[f] !== true) k[f] = true; });
+  k.tags = un(keep.tags, dup.tags); k.manualSpouseNames = un(keep.manualSpouseNames, dup.manualSpouseNames);
+  const kids = all.filter((p) => p.fatherId === dupId || p.motherId === dupId).map((p) => p.id);
+  k.childrenIds = un(keep.childrenIds, un(dup.childrenIds, kids)).filter((x) => x !== keepId && x !== dupId && by.has(x));
+  k.spouseIds = un(keep.spouseIds, dup.spouseIds).filter((x) => x !== keepId && x !== dupId && by.has(x));
+  const pk = priv.get(keepId) || {}, pd = priv.get(dupId) || {}, np = { phoneNumber: pk.phoneNumber || pd.phoneNumber || "", idNumber: pk.idNumber || pd.idNumber || "" };
+  return { U, keep, dup, np, hasPriv: !!(np.phoneNumber || np.idNumber), hadPriv: priv.has(dupId) };
+}
+async function apply(pl) {
+  const entries = [...pl.U.entries()], stamp = { updatedAt: serverTimestamp(), updatedBy: S.user.uid };
+  for (let i = 0; i < entries.length; i += 380) { const b = writeBatch(db); entries.slice(i, i + 380).forEach(([id, f]) => b.update(doc(db, "familyMembers", id), { ...f, ...stamp })); await b.commit(); }
+  const b = writeBatch(db); if (pl.hasPriv) b.set(doc(db, "familyPrivate", pl.keep.id), { ...pl.np, updatedAt: serverTimestamp() }, { merge: true });
+  if (pl.hadPriv) b.delete(doc(db, "familyPrivate", pl.dup.id)); b.delete(doc(db, "familyMembers", pl.dup.id)); await b.commit();
+  try { await addDoc(collection(db, "auditLogs"), { type: "person-merge", targetId: pl.keep.id, name: nm(pl.keep), mergedId: pl.dup.id, dupData: JSON.parse(JSON.stringify(pl.dup)), by: S.user.uid, at: serverTimestamp() }); } catch (e) { console.warn(e); }
+}
+async function run() {
+  const main = $("main"); await load();
+  main.innerHTML = '<div class="top"><div><span class="eyebrow">أدوات المدير</span><h1>🧩 دمج المكررين</h1><p class="mut">أشخاص بنفس الاسم الكامل. اختر «الأصلي» وسيُنقل إليه كل ما في المكرر (الأبناء، الزوج/ة، البيانات الناقصة) ثم يُحذف المكرر. اقرأ البيانات جيدًا فقد يكونون أشخاصًا مختلفين فعلًا.</p></div></div><div id="g"></div>';
+  async function draw() {
+    const box = $("#g"); box.replaceChildren(); const gs = groups();
+    if (!gs.length) { box.append(h("div", "panel empty", "✅ لا توجد أسماء مكررة.")); return; }
+    gs.forEach(([key, list]) => {
+      const el = h("div", "panel"), best = list.slice().sort((a, b) => score(b) - score(a))[0].id; el.append(h("h2", "", list[0].fullName + " (" + list.length + ")"));
+      const name = "k" + Math.random().toString(36).slice(2, 7);
+      list.forEach((m) => {
+        const r = h("label", "chk"); r.style.margin = "4px 0"; const rd = document.createElement("input"); rd.type = "radio"; rd.name = name; rd.value = m.id; rd.checked = m.id === best;
+        const f = by.get(m.fatherId), mo = by.get(m.motherId), a = ageOf(m);
+        const info = [m.birthDate && m.birthDate.toDate ? "مواليد " + m.birthDate.toDate().getFullYear() : "بلا ميلاد", f ? "الأب: " + nm(f) : "بلا أب", mo ? "الأم: " + nm(mo) : (m.motherName ? "الأم: " + m.motherName : "بلا أم"), (m.childrenIds || []).length + " أبناء", (m.spouseIds || []).length ? "متزوج/ة" : ""].filter(Boolean).join(" · ");
+        const link = h("a", "", "فتح"); link.href = "profile.html?id=" + m.id; link.target = "_blank"; link.style.marginInlineStart = "auto";
+        r.append(rd, h("span", "", "الأصلي؟ " + info), link); el.append(r);
+      });
+      const row = h("div", "row"); row.style.marginTop = "8px";
+      const go = h("button", "btn gold", "🧩 دمج الباقي في الأصلي"), ig = h("button", "btn", "ليسوا مكررين");
+      go.onclick = async () => {
+        const keepId = el.querySelector("input:checked").value, dups = list.filter((m) => m.id !== keepId);
+        if (!await confirmUI("تأكيد الدمج", "سيتم دمج " + dups.length + " سجل في «" + nm(by.get(keepId)) + "» ثم حذفها. لا يمكن التراجع من الواجهة (تُحفظ نسخة المحذوف في سجل النشاط).", true)) return;
+        go.disabled = true;
+        try { for (const d of dups) { const pl = plan(keepId, d.id); await apply(pl); await load(); } try { await propagateTags(all); } catch (e) {} toast("تم الدمج ✓"); draw(); } catch (e) { go.disabled = false; e.code ? fail(e) : toast(e.message); }
+      };
+      ig.onclick = () => { ignored.add(key); localStorage.setItem(IGN, JSON.stringify([...ignored])); draw(); };
+      row.append(go, ig); el.append(row); box.append(el);
+    });
+  }
+  draw();
+}
+run().catch(fail);
+
+</script></body></html>

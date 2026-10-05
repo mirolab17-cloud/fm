@@ -1,0 +1,34 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>اقتراحات التصحيح</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, members, picker, nm, fail, toast, db, doc, collection, getDocs, addDoc, updateDoc, query, where, serverTimestamp } from "./app.js";
+const S = await boot();
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const LBL = { new: "🆕 جديد", done: "✅ تم التطبيق", rejected: "❌ مرفوض" };
+async function run() {
+  if (S.user.isAnonymous) { $("main").innerHTML = '<div class="panel">هذه الصفحة للأعضاء المسجلين فقط.</div>'; return; }
+  const main = $("main"), adm = S.role === "admin", all = await members(), pk = picker(all), by = new Map(all.map((m) => [m.id, m])), pre = by.get(new URLSearchParams(location.search).get("person"));
+  main.innerHTML = `<div class="top"><div><span class="eyebrow">ساعدنا بالتصحيح</span><h1>💡 اقتراح تصحيح</h1><p class="mut">وجدت خطأ أو معلومة ناقصة؟ أرسلها للمدير وسيراجعها.</p></div></div><div class="panel"><div><label class="l">الشخص المعني (اختياري)</label><input id="p" list="${pk.dl.id}" placeholder="اكتب الاسم واختر…"></div><label class="l" style="margin-top:8px">ما التصحيح المقترح؟ *</label><textarea id="t" rows="4" maxlength="1900" placeholder="مثال: تاريخ ميلاده الصحيح 1985-03-12"></textarea><button class="btn gold" id="send" style="margin-top:8px">إرسال الاقتراح</button></div><h2>${adm ? "كل الاقتراحات" : "اقتراحاتي"}</h2><div id="list"></div>`;
+  main.appendChild(pk.dl); if (pre) $("#p").value = pk.lab(pre);
+  async function load() {
+    const base = collection(db, "suggestions"), list = (await getDocs(adm ? base : query(base, where("uid", "==", S.user.uid)))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    const box = $("#list"); box.replaceChildren(); if (!list.length) box.append(h("div", "panel empty", "لا توجد اقتراحات."));
+    list.forEach((s) => {
+      const el = h("div", "panel"), p = by.get(s.personId);
+      el.innerHTML = `<div class="row" style="justify-content:space-between"><b>${p ? esc(nm(p)) : "عام"}</b><span class="tag">${LBL[s.status] || s.status}</span></div><p>${esc(s.text)}</p><div class="mut small">${adm ? esc(s.name || "") + " · " : ""}${s.createdAt?.toDate ? s.createdAt.toDate().toLocaleString("ar-EG") : ""}</div>${s.reply ? `<div class="mut">ردّ الإدارة: ${esc(s.reply)}</div>` : ""}`;
+      if (adm) {
+        const r = h("div", "row"); r.style.marginTop = "8px";
+        if (p) { const a = h("a", "btn", "✏️ تعديل الشخص"); a.href = "add_edit_person.html?id=" + p.id; r.append(a); }
+        [["done", "✅ تم", "gold"], ["rejected", "❌ رفض", "red"]].forEach(([k, t, c]) => { const b = h("button", "btn " + c, t); b.onclick = async () => { const reply = prompt("ملاحظة للعضو (اختياري)", s.reply || ""); if (reply === null) return; try { await updateDoc(doc(db, "suggestions", s.id), { status: k, reply: reply.trim(), reviewedBy: S.user.uid, reviewedAt: serverTimestamp() }); load(); } catch (e) { fail(e); } }; r.append(b); });
+        el.append(r);
+      }
+      box.append(el);
+    });
+  }
+  $("#send").onclick = async () => { try { const t = $("#t").value.trim(); if (!t) return toast("اكتب الاقتراح"); const pe = $("#p").value.trim() ? pk.get($("#p").value) : null; if ($("#p").value.trim() && !pe) return toast("اختر الشخص من القائمة أو امسح الحقل"); await addDoc(collection(db, "suggestions"), { uid: S.user.uid, name: (S.user.displayName || S.user.email || "عضو").split("@")[0], personId: pe ? pe.id : null, text: t, status: "new", createdAt: serverTimestamp() }); $("#t").value = ""; toast("تم الإرسال، شكرًا لمساهمتك ✓"); load(); } catch (e) { fail(e); } };
+  await load();
+}
+run().catch(fail);
+
+</script></body></html>

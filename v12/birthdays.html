@@ -1,0 +1,34 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>المناسبات العائلية</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, members, h, $, nm, avatar, fail, shellTitle } from "./family-pages.js";
+import { toast, rank } from "./app.js";
+import { loadPrivate, mergePrivate, nextBirthdays, greetText, GREET_KEY, DEFAULT_GREET } from "./fx.js";
+const S = await boot();
+async function run() {
+  const all = mergePrivate(await members(), await loadPrivate(S)), main = $("main"), ed = rank[S.role] >= 2;
+  main.innerHTML = shellTitle("المناسبات العائلية", "أعياد الميلاد وذكرى الزواج مع رسائل تهنئة جاهزة للنسخ أو الإرسال.") + `<div class="panel"><h2>✍️ نص التهنئة</h2><p class="mut small">استخدم {name} للاسم الأول و{full} للاسم الكامل و{age} للعمر.</p><textarea id="tpl" rows="3"></textarea><div class="row" style="margin-top:8px"><input id="cc" style="max-width:120px" dir="ltr" placeholder="رمز الدولة"><span class="mut small">رمز الدولة للواتساب (مثال 970)</span><button class="btn" id="sv">حفظ النص</button><button class="btn" id="rs">الافتراضي</button></div></div><section class="panel"><div class="section-head"><div><span class="eyebrow">🎂 الأقرب فالأبعد</span><h2>أعياد الميلاد</h2></div></div><div class="event-list" id="list"></div></section><section class="panel"><div class="section-head"><div><span class="eyebrow">💍 ذكرى</span><h2>ذكرى الزواج القادمة</h2></div></div><div class="event-list" id="ann"></div></section>`;
+  $("#tpl").value = localStorage.getItem(GREET_KEY) || DEFAULT_GREET; $("#cc").value = localStorage.getItem("family-cc") || "970";
+  $("#sv").onclick = () => { localStorage.setItem(GREET_KEY, $("#tpl").value); localStorage.setItem("family-cc", $("#cc").value.trim() || "970"); toast("تم الحفظ ✓"); draw(); };
+  $("#rs").onclick = () => { localStorage.removeItem(GREET_KEY); $("#tpl").value = DEFAULT_GREET; draw(); };
+  function draw() {
+    const list = $("#list"); list.replaceChildren(); const up = nextBirthdays(all, 45).slice(0, 40);
+    if (!up.length) list.innerHTML = '<div class="empty">لا توجد أعياد ميلاد قادمة.</div>';
+    up.forEach((x) => {
+      const card = h("div", "event-card"); card.style.flexWrap = "wrap";
+      const a = h("a", "event-info"); a.href = "profile.html?id=" + x.m.id; a.style.cssText = "display:flex;gap:10px;align-items:center;flex:1;color:inherit;text-decoration:none"; const info = h("div"); info.append(h("b", "", nm(x.m)), h("div", "mut", (x.left === 0 ? "🎉 اليوم" : x.left === 1 ? "غدًا" : x.d.toLocaleDateString("ar-EG", { weekday: "long", day: "numeric", month: "long" })) + " · يبلغ " + x.turns)); a.append(avatar(x.m), info);
+      const row = h("div", "row"), cp = h("button", "btn", "📋 نسخ التهنئة"); cp.onclick = async () => { try { await navigator.clipboard.writeText(greetText(x)); toast("نُسخت التهنئة ✓"); } catch (e) { prompt("انسخ النص:", greetText(x)); } }; row.append(cp);
+      if (ed && x.m.phoneNumber) { const wa = h("button", "btn gold", "💬 واتساب"); wa.onclick = () => { const cc = localStorage.getItem("family-cc") || "970", n = String(x.m.phoneNumber).replace(/\D/g, "").replace(/^0/, cc); window.open("https://wa.me/" + n + "?text=" + encodeURIComponent(greetText(x)), "_blank"); }; row.append(wa); }
+      card.append(a, row); list.append(card);
+    });
+    const ann = $("#ann"); ann.replaceChildren(); const n = new Date(), t0 = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+    const ms = all.filter((m) => m.marriageDate && m.marriageDate.toDate && m.isAlive !== false).map((m) => { const b = m.marriageDate.toDate(); let d = new Date(t0.getFullYear(), b.getMonth(), b.getDate()); if (d < t0) d.setFullYear(d.getFullYear() + 1); return { m, d, y: d.getFullYear() - b.getFullYear() }; }).sort((a, b) => a.d - b.d).slice(0, 15);
+    if (!ms.length) ann.innerHTML = '<div class="empty">لا توجد تواريخ زواج مسجّلة.</div>';
+    ms.forEach((x) => { const a = h("a", "event-card"); a.href = "profile.html?id=" + x.m.id; const info = h("div", "event-info"); info.append(h("b", "", nm(x.m)), h("span", "", x.d.toLocaleDateString("ar-EG", { day: "numeric", month: "long" }) + " · " + x.y + " سنة")); a.append(avatar(x.m), info); ann.append(a); });
+  }
+  draw();
+}
+run().catch(fail);
+
+</script></body></html>
