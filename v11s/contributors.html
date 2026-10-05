@@ -1,0 +1,21 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>مساهمو العائلة</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, fail, db, collection, getDocs } from "./app.js";
+import { shellTitle } from "./family-pages.js";
+const S = await boot();
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const TIERS = [[300, "👑", "أمين العائلة"], [100, "🥇", "مساهم ذهبي"], [40, "🥈", "مساهم فضي"], [10, "🥉", "مساهم برونزي"], [1, "🌱", "مبتدئ"]];
+const tier = (s) => TIERS.find((t) => s >= t[0]);
+async function run() {
+  const main = $("main"); let list = [];
+  try { list = (await getDocs(collection(db, "contribStats"))).docs.map((d) => ({ id: d.id, ...d.data() })); } catch (e) { console.warn(e); }
+  list.forEach((c) => (c.score = (c.adds || 0) * 3 + (c.edits || 0) + (c.links || 0) * 2)); list = list.filter((c) => c.score > 0).sort((a, b) => b.score - a.score);
+  main.innerHTML = shellTitle("مساهمو العائلة", "شكرًا لكل من أضاف أو صحّح أو ربط. النقاط: إضافة شخص = 3، ربط علاقة = 2، تعديل = 1.") + '<div id="l"></div><div class="panel"><h2>الشارات</h2>' + TIERS.slice().reverse().map((t) => `<div class="kv"><span>${t[1]} ${t[2]}</span><span>من ${t[0]} نقطة</span></div>`).join("") + "</div>";
+  const box = $("#l"); if (!list.length) box.innerHTML = '<div class="panel empty">لا توجد مساهمات مسجّلة بعد. ستظهر هنا بعد أول إضافة أو تعديل.</div>';
+  list.forEach((c, i) => { const t = tier(c.score), el = h("div", "panel"); el.innerHTML = `<div class="row" style="justify-content:space-between"><b>${["🥇", "🥈", "🥉"][i] || "#" + (i + 1)} ${esc(c.name || "عضو")}</b><span class="tag ok">${t[1]} ${t[2]}</span></div><div class="mut">${c.score} نقطة · أضاف ${c.adds || 0} · عدّل ${c.edits || 0} · ربط ${c.links || 0}</div>`; box.append(el); });
+}
+run().catch(fail);
+
+</script></body></html>

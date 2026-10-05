@@ -1,0 +1,130 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1020"><title>تصدير البيانات والتقارير</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="editor"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+import { boot, h, $, members, iso, toD, fmtD, nm, isF, fail, toast, confirmUI, inputUI, db, doc, collection, getDocs, setDoc, deleteDoc, serverTimestamp, rank } from "./app.js";
+import { renderFilters, applyFilters, loadFilters, filtersActive, statusLabel, GENDER, ageOf, loadPrivate, mergePrivate, downloadFile } from "./fx.js";
+const S = await boot();
+const CFG = "family-export-config-v2";
+const dfmt = (v, f) => { const d = toD(v); if (!d || isNaN(d)) return ""; if (f === "dmy") return String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0") + "/" + d.getFullYear(); return iso(v); };
+const COLS = [
+  ["no", "م", (m, c) => c.i + 1],
+  ["fullName", "الاسم الكامل", (m) => m.fullName || nm(m)],
+  ["firstName", "الاسم الأول", (m) => m.firstName || ""],
+  ["fatherName", "اسم الأب", (m) => m.fatherName || ""],
+  ["grandFatherName", "اسم الجد", (m) => m.grandFatherName || ""],
+  ["familyName", "العائلة", (m) => m.familyName || ""],
+  ["motherName", "اسم الأم", (m, c) => (c.by.get(m.motherId) ? nm(c.by.get(m.motherId)) : m.motherName || "")],
+  ["father", "الأب (الاسم الكامل)", (m, c) => (c.by.get(m.fatherId) ? nm(c.by.get(m.fatherId)) : "")],
+  ["gender", "الجنس", (m) => GENDER(m)],
+  ["age", "العمر", (m) => { const a = ageOf(m); return a == null ? "" : a; }],
+  ["birthDate", "تاريخ الميلاد", (m, c) => dfmt(m.birthDate, c.df)],
+  ["marital", "الحالة الاجتماعية", (m) => statusLabel(m)],
+  ["alive", "الحياة", (m) => (m.isAlive === false ? (isF(m) ? "متوفاة" : "متوفى") : "على قيد الحياة")],
+  ["deathDate", "تاريخ الوفاة", (m, c) => (m.isAlive === false ? dfmt(m.deathDate, c.df) : "")],
+  ["spouses", "الزوج/الزوجة", (m, c) => [...(m.spouseIds || []).map((x) => (c.by.get(x) ? nm(c.by.get(x)) : "")), ...(m.manualSpouseNames || [])].filter(Boolean).join("، ")],
+  ["marriageDate", "تاريخ الزواج", (m, c) => dfmt(m.marriageDate, c.df)],
+  ["kids", "عدد الأبناء", (m, c) => c.kc.get(m.id) || 0],
+  ["phoneNumber", "الجوال", (m) => m.phoneNumber || ""],
+  ["idNumber", "رقم الهوية", (m) => m.idNumber || ""],
+  ["displaced", "النزوح", (m) => (m.displaced ? "نازح" : "مقيم")],
+  ["displacedPlace", "مكان النزوح", (m) => m.displacedPlace || ""],
+  ["campName", "المخيم", (m) => m.campName || ""],
+  ["residence", "السكن الأصلي", (m) => m.residence || ""],
+  ["tags", "الفئة المباشرة", (m) => (m.tags || []).join("، ")],
+  ["allTags", "الفرع / الفئات", (m) => (m.allTags || m.tags || []).join("، ")],
+  ["notes", "ملاحظات", (m) => m.notes || ""],
+];
+const DEF_ON = ["no", "fullName", "gender", "age", "marital"];
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+async function run() {
+  const all = mergePrivate(await members(), await loadPrivate(S)), main = $("main"), by = new Map(all.map((m) => [m.id, m])), kc = new Map();
+  all.forEach((m) => [m.fatherId, m.motherId].forEach((p) => p && kc.set(p, (kc.get(p) || 0) + 1)));
+  let idsSet = null; try { const a = JSON.parse(sessionStorage.getItem("exportIds") || "[]"); if (a.length) idsSet = new Set(a); } catch (e) {}
+  const s = loadFilters(); if (idsSet) s.idsOnly = true;
+  let st = { title: "كشف أسماء", org: "", footer: "", orient: "portrait", df: "iso", showDate: true, showCount: true, sort: "name", sign: false, cols: COLS.map(([k, l]) => ({ key: k, header: l, on: DEF_ON.includes(k) })), fname: "family-export" };
+  try { const sv = JSON.parse(localStorage.getItem(CFG) || "null"); if (sv && sv.cols) { const known = new Set(sv.cols.map((c) => c.key)); st = { ...st, ...sv, cols: [...sv.cols.filter((c) => c.custom || COLS.some((x) => x[0] === c.key)), ...COLS.filter((x) => !known.has(x[0])).map(([k, l]) => ({ key: k, header: l, on: false }))] }; } } catch (e) {}
+  const persist = () => { try { localStorage.setItem(CFG, JSON.stringify(st)); } catch (e) {} };
+  main.innerHTML = `<div class="top"><div><span class="eyebrow">تقارير للمؤسسات والمخاتير</span><h1>📤 التصدير والتقارير</h1><p class="mut">اختر الفئة المطلوبة بالفلاتر، رتّب الأعمدة، أضف أعمدة ثابتة، ثم صدّر Excel أو PDF أو CSV.</p></div></div>
+  <div class="panel"><h2>1) من تريد أن تصدّر؟</h2><div id="flt"></div><p class="mut" id="cnt" style="margin-top:8px"></p></div>
+  <div class="panel"><h2>2) الأعمدة وترتيبها</h2><p class="mut small">فعّل العمود، غيّر عنوانه كما تريد، ورتّبه بالأسهم. الأعمدة الثابتة تُكتب قيمتها لكل الأسماء.</p><div id="cols"></div>
+  <div class="row" style="margin-top:10px"><input id="ch" placeholder="عنوان العمود الثابت (مثال: الحالة)" style="flex:1;min-width:160px"><input id="cv" placeholder="قيمته لكل الأسماء (مثال: نازح)" style="flex:1;min-width:160px"><button class="btn gold" id="ca" type="button">＋ إضافة عمود ثابت</button></div></div>
+  <div class="panel"><h2>3) التنسيق</h2><div class="g">
+  <div><label class="l">عنوان التقرير</label><input id="ti"></div><div><label class="l">الجهة المستلمة (مؤسسة / مختار)</label><input id="og" placeholder="مثال: إلى السيد المختار …"></div>
+  <div><label class="l">الترتيب</label><select id="so"><option value="name">حسب الاسم</option><option value="age_d">الأكبر سنًا أولًا</option><option value="age_a">الأصغر سنًا أولًا</option><option value="birth">حسب تاريخ الميلاد</option></select></div>
+  <div><label class="l">صيغة التاريخ</label><select id="df"><option value="iso">2024-05-31</option><option value="dmy">31/05/2024</option></select></div>
+  <div><label class="l">اتجاه الطباعة</label><select id="or"><option value="portrait">عمودي</option><option value="landscape">أفقي</option></select></div>
+  <div><label class="l">اسم الملف</label><input id="fn" dir="ltr"></div></div>
+  <label class="l" style="margin-top:10px">نص أسفل التقرير (اختياري)</label><textarea id="ft" rows="2"></textarea>
+  <div class="row" style="margin-top:8px"><label class="chk"><input id="sd" type="checkbox"> إظهار التاريخ</label><label class="chk"><input id="sc" type="checkbox"> إظهار عدد الأسماء</label><label class="chk"><input id="sg" type="checkbox"> سطر توقيع وختم</label></div></div>
+  <div class="panel"><h2>4) قوالب محفوظة</h2><div class="row"><input id="tn" placeholder="اسم القالب (مثال: كشف المخيم)" style="flex:1;min-width:160px"><button class="btn" id="ts" type="button">💾 حفظ كقالب</button><select id="tl" style="flex:1;min-width:160px"><option value="">— اختر قالبًا —</option></select><button class="btn" id="tg" type="button">تحميل</button><button class="btn red" id="td" type="button">حذف</button></div></div>
+  <div class="panel"><h2>معاينة</h2><div class="tw" id="pv"></div></div>
+  <div class="row" style="position:sticky;bottom:8px"><button class="btn gold" id="xl">📊 Excel</button><button class="btn" id="pdf">🖨️ طباعة / PDF</button><button class="btn" id="csv">CSV</button><button class="btn" id="json">JSON</button></div>`;
+  const ids = { ti: "title", og: "org", ft: "footer", so: "sort", df: "df", or: "orient", fn: "fname" }, chks = { sd: "showDate", sc: "showCount", sg: "sign" };
+  Object.entries(ids).forEach(([i, k]) => { $("#" + i).value = st[k] ?? ""; $("#" + i).oninput = () => { st[k] = $("#" + i).value; persist(); pv(); }; });
+  Object.entries(chks).forEach(([i, k]) => { $("#" + i).checked = !!st[k]; $("#" + i).onchange = () => { st[k] = $("#" + i).checked; persist(); }; });
+  const extra = idsSet ? (() => { const lb = h("label", "chk"), c = document.createElement("input"); c.type = "checkbox"; c.checked = true; c.onchange = () => { s.idsOnly = c.checked; pv(); }; lb.append(c, "المحددون من قائمة الأفراد فقط (" + idsSet.size + ")"); return lb; })() : null;
+  const rows = () => { let r = applyFilters(all, s, all, idsSet); const age = (m) => { const a = ageOf(m); return a == null ? -1 : a; }; const b = (m) => (toD(m.birthDate) ? toD(m.birthDate).getTime() : 0); r = r.slice().sort(st.sort === "age_d" ? (x, y) => age(y) - age(x) : st.sort === "age_a" ? (x, y) => age(x) - age(y) : st.sort === "birth" ? (x, y) => b(x) - b(y) : (x, y) => (x.fullName || "").localeCompare(y.fullName || "", "ar")); return r; };
+  const active = () => st.cols.filter((c) => c.on);
+  const cell = (m, c, ctx) => { if (c.custom) return c.value; const d = COLS.find((x) => x[0] === c.key); return d ? d[2](m, ctx) : ""; };
+  const table = (limit) => { const r = rows(), cs = active(), out = []; r.slice(0, limit || r.length).forEach((m, i) => out.push(cs.map((c) => cell(m, c, { i, by, kc, df: st.df })))); return { head: cs.map((c) => c.header), body: out, n: r.length }; };
+  function pv() { const t = table(12); $("#cnt").textContent = `عدد الأسماء المطابقة: ${t.n} من ${all.length}`; $("#pv").innerHTML = t.head.length ? `<table><thead><tr>${t.head.map((x) => `<th>${esc(x)}</th>`).join("")}</tr></thead><tbody>${t.body.map((r) => `<tr>${r.map((x) => `<td>${esc(x)}</td>`).join("")}</tr>`).join("")}</tbody></table>` + (t.n > 12 ? `<p class="mut small">… ويظهر ${t.n - 12} آخرون في الملف</p>` : "") : '<p class="mut">فعّل عمودًا واحدًا على الأقل.</p>'; }
+  function drawCols() {
+    const box = $("#cols"); box.replaceChildren();
+    st.cols.forEach((c, i) => {
+      const r = h("div", "row"); r.style.cssText = "align-items:center;margin:4px 0;flex-wrap:nowrap";
+      const ck = document.createElement("input"); ck.type = "checkbox"; ck.checked = c.on; ck.onchange = () => { c.on = ck.checked; persist(); pv(); };
+      const hd = h("input"); hd.value = c.header; hd.style.flex = "1"; hd.oninput = () => { c.header = hd.value; persist(); pv(); };
+      const up = h("button", "btn", "↑"), dn = h("button", "btn", "↓"); up.type = dn.type = "button";
+      up.onclick = () => { if (i > 0) { [st.cols[i - 1], st.cols[i]] = [st.cols[i], st.cols[i - 1]]; persist(); drawCols(); pv(); } };
+      dn.onclick = () => { if (i < st.cols.length - 1) { [st.cols[i + 1], st.cols[i]] = [st.cols[i], st.cols[i + 1]]; persist(); drawCols(); pv(); } };
+      r.append(ck, hd);
+      if (c.custom) { const vv = h("input"); vv.value = c.value; vv.placeholder = "القيمة"; vv.style.flex = "1"; vv.oninput = () => { c.value = vv.value; persist(); pv(); }; const x = h("button", "btn red", "🗑"); x.type = "button"; x.onclick = () => { st.cols.splice(i, 1); persist(); drawCols(); pv(); }; r.append(vv, up, dn, x); } else r.append(up, dn);
+      box.append(r);
+    });
+  }
+  $("#ca").onclick = () => { const hd = $("#ch").value.trim(), v = $("#cv").value.trim(); if (!hd) return toast("اكتب عنوان العمود"); st.cols.push({ key: "custom:" + Date.now(), custom: true, header: hd, value: v, on: true }); $("#ch").value = $("#cv").value = ""; persist(); drawCols(); pv(); };
+  renderFilters($("#flt"), all, s, pv, extra);
+  /* ---- قوالب ---- */
+  let tpls = [];
+  const LS = "family-export-templates";
+  async function loadT() { try { tpls = (await getDocs(collection(db, "exportTemplates"))).docs.map((d) => ({ id: d.id, ...d.data() })); } catch (e) { try { tpls = JSON.parse(localStorage.getItem(LS) || "[]"); } catch (x) { tpls = []; } } $("#tl").replaceChildren(new Option("— اختر قالبًا —", ""), ...tpls.map((t) => new Option(t.name, t.id))); }
+  $("#ts").onclick = async () => {
+    const name = $("#tn").value.trim(); if (!name) return toast("اكتب اسم القالب");
+    const f = { ...s }; delete f.idsOnly; const cfg = JSON.stringify({ st, f }), id = "t" + Math.abs([...name].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7));
+    try { await setDoc(doc(db, "exportTemplates", id), { name, cfg, by: S.user.uid, updatedAt: serverTimestamp() }); toast("تم حفظ القالب ✓"); }
+    catch (e) { const l = JSON.parse(localStorage.getItem(LS) || "[]").filter((x) => x.id !== id); l.push({ id, name, cfg }); localStorage.setItem(LS, JSON.stringify(l)); toast("حُفظ القالب على هذا الجهاز فقط"); }
+    loadT();
+  };
+  $("#tg").onclick = () => {
+    const t = tpls.find((x) => x.id === $("#tl").value); if (!t) return toast("اختر قالبًا");
+    try { const o = JSON.parse(t.cfg); st = { ...st, ...o.st }; Object.assign(s, { ...o.f, idsOnly: false }); Object.entries(ids).forEach(([i, k]) => ($("#" + i).value = st[k] ?? "")); Object.entries(chks).forEach(([i, k]) => ($("#" + i).checked = !!st[k])); persist(); renderFilters($("#flt"), all, s, pv, extra); drawCols(); pv(); toast("تم تحميل القالب"); } catch (e) { toast("القالب تالف"); }
+  };
+  $("#td").onclick = async () => { const t = tpls.find((x) => x.id === $("#tl").value); if (!t) return toast("اختر قالبًا"); if (!await confirmUI("حذف القالب", "حذف «" + t.name + "»؟", true)) return; try { await deleteDoc(doc(db, "exportTemplates", t.id)); } catch (e) { const l = JSON.parse(localStorage.getItem(LS) || "[]").filter((x) => x.id !== t.id); localStorage.setItem(LS, JSON.stringify(l)); if (S.role !== "admin") toast("الحذف من القوالب المشتركة للمدير فقط"); } loadT(); };
+  /* ---- التصدير ---- */
+  const fname = () => (st.fname || "family-export").replace(/[^\w\u0600-\u06FF-]+/g, "_") + "-" + new Date().toISOString().slice(0, 10);
+  const get = () => { const t = table(); if (!t.head.length || !t.n) { toast("لا توجد أعمدة أو أسماء مطابقة"); return null; } return t; };
+  $("#csv").onclick = () => { const t = get(); if (!t) return; const q = (x) => '"' + String(x).replace(/"/g, '""') + '"'; downloadFile("\uFEFF" + [t.head.map(q).join(","), ...t.body.map((r) => r.map(q).join(","))].join("\r\n"), fname() + ".csv", "text/csv;charset=utf-8"); };
+  $("#json").onclick = () => { const t = get(); if (!t) return; downloadFile(JSON.stringify(t.body.map((r) => Object.fromEntries(t.head.map((k, i) => [k, r[i]]))), null, 2), fname() + ".json"); };
+  $("#xl").onclick = async () => {
+    const t = get(); if (!t) return;
+    try {
+      if (!window.XLSX) await new Promise((res, rej) => { const sc = document.createElement("script"); sc.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; sc.onload = res; sc.onerror = () => rej(new Error("تعذر تحميل مكتبة Excel، استخدم CSV")); document.head.appendChild(sc); });
+      const aoa = []; if (st.title) aoa.push([st.title]); if (st.org) aoa.push([st.org]); if (st.showDate) aoa.push(["التاريخ: " + new Date().toLocaleDateString("ar-EG")]); if (st.showCount) aoa.push(["العدد: " + t.n]); if (aoa.length) aoa.push([]);
+      const hr = aoa.length; aoa.push(t.head, ...t.body); if (st.footer) aoa.push([], [st.footer]);
+      const ws = XLSX.utils.aoa_to_sheet(aoa); ws["!cols"] = t.head.map((x, i) => ({ wch: Math.min(40, Math.max(String(x).length + 2, ...t.body.slice(0, 200).map((r) => String(r[i] ?? "").length + 2))) })); ws["!views"] = [{ RTL: true }];
+      const wb = XLSX.utils.book_new(); wb.Workbook = { Views: [{ RTL: true }] }; XLSX.utils.book_append_sheet(wb, ws, "الأسماء"); XLSX.writeFile(wb, fname() + ".xlsx");
+    } catch (e) { toast(e.message || "تعذر إنشاء ملف Excel"); }
+  };
+  $("#pdf").onclick = () => {
+    const t = get(); if (!t) return;
+    document.getElementById("printArea")?.remove(); document.getElementById("pgstyle")?.remove();
+    const pa = h("div"); pa.id = "printArea";
+    pa.innerHTML = `<div style="text-align:center;margin-bottom:10px">${st.title ? `<h2 style="margin:4px 0">${esc(st.title)}</h2>` : ""}${st.org ? `<div style="font-size:15px">${esc(st.org)}</div>` : ""}<div style="font-size:12px;color:#444">${[st.showDate ? "التاريخ: " + new Date().toLocaleDateString("ar-EG") : "", st.showCount ? "العدد: " + t.n : ""].filter(Boolean).join(" · ")}</div></div><table><thead><tr>${t.head.map((x) => `<th>${esc(x)}</th>`).join("")}</tr></thead><tbody>${t.body.map((r) => `<tr>${r.map((x) => `<td>${esc(x)}</td>`).join("")}</tr>`).join("")}</tbody></table>${st.footer ? `<p style="margin-top:14px">${esc(st.footer).replace(/\n/g, "<br>")}</p>` : ""}${st.sign ? '<div style="display:flex;justify-content:space-around;margin-top:50px"><div>التوقيع: ____________</div><div>الختم</div></div>' : ""}`;
+    document.body.appendChild(pa);
+    const ps = document.createElement("style"); ps.id = "pgstyle"; ps.textContent = `#printArea{display:none}@media print{@page{size:A4 ${st.orient}}body>*:not(#printArea){display:none!important}#printArea{display:block!important;direction:rtl;color:#000;background:#fff;font-family:Tajawal,Arial,sans-serif}#printArea table{width:100%;border-collapse:collapse;font-size:12px}#printArea th,#printArea td{border:1px solid #000;padding:5px 6px;text-align:right}#printArea thead{display:table-header-group}#printArea tr{break-inside:avoid}#printArea th{background:#eee}}`;
+    document.head.appendChild(ps); const old = document.title; document.title = st.title || "تقرير"; setTimeout(() => { window.print(); document.title = old; }, 200);
+  };
+  drawCols(); pv(); await loadT();
+}
+run().catch(fail);
+</script></body></html>

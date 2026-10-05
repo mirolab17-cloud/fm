@@ -1,0 +1,99 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function acct() { return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role : 'none'; }
+    function role() { return signedIn() && acct() in ['viewer','editor','admin'] ? acct() : 'none'; }
+    function isViewer() { return role() in ['viewer','editor','admin']; }
+    function isEditor() { return role() in ['editor','admin']; }
+    function isAdmin() { return signedIn() && acct() == 'admin'; }
+    function accessDoc() { return get(/databases/$(database)/documents/settings/access).data; }
+    function hasAccessDoc() { return exists(/databases/$(database)/documents/settings/access); }
+    function openReg() { return hasAccessDoc() && accessDoc().get('requireApproval', true) == false; }
+    function pendingRead() { return signedIn() && acct() == 'pending' && hasAccessDoc() && accessDoc().get('pendingPages', []).size() > 0; }
+    function canRead() { return isViewer() || pendingRead(); }
+    function myBranches() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('branchPermissions', []); }
+    function validPerson() { let d=request.resource.data; return d.firstName is string && d.firstName.size()>0 && d.firstName.size()<60 && d.fullName is string && d.fullName.size()<250 && (!('notes' in d) || d.notes==null || d.notes.size()<2000); }
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid==uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid==uid
+        && request.resource.data.keys().hasOnly(['email','displayName','phoneNumber','birthDate','idNumber','motherName','verificationStatus','role','permissions','createdAt','lastLoginAt','lastSeenAt','activeDeviceId','sessionVersion','logoutRequestedAt','disabled','approvedAt','approvedBy','branchPermissions','rejectionReason','nameParts','motherParts'])
+        && request.resource.data.role in ['pending','viewer']
+        && request.resource.data.get('email','') == request.auth.token.email;
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid==uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email','displayName','birthDate','motherName','lastLoginAt','lastSeenAt','activeDeviceId','sessionVersion','logoutRequestedAt','nameParts','motherParts'])
+          && request.resource.data.email == request.auth.token.email)
+        || (signedIn() && request.auth.uid==uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastLoginAt','lastSeenAt','activeDeviceId']));
+      allow delete: if isAdmin();
+    }
+    // لا تُحفظ الهوية في الفهرس؛ يُستخدم SHA-256 فقط للوصول إلى البريد المرتبط.
+
+    match /users/{uid}/devices/{deviceId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid==uid);
+      allow create,update: if signedIn() && request.auth.uid==uid;
+      allow delete: if isAdmin() || (signedIn() && request.auth.uid==uid && deviceId == resource.id);
+    }
+    match /{path=**}/devices/{deviceId} { allow read: if isAdmin(); }
+    match /loginIndex/{hash} {
+      allow get: if true;
+      allow create: if isAdmin() || (signedIn() && request.resource.data.uid == request.auth.uid && request.resource.data.email == request.auth.token.email && request.resource.data.email is string);
+      allow update: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid && request.resource.data.email == request.auth.token.email);
+      allow list, delete: if isAdmin();
+    }
+    match /settings/bootstrap { allow read, write: if false; }
+    match /familyMembers/{id} {
+      allow read: if canRead();
+      allow create: if isEditor() && validPerson() && !request.resource.data.keys().hasAny(['idNumber','phoneNumber','role','permissions','branchPermissions']) && (myBranches().size()==0 || request.resource.data.get('tags', []).hasAny(myBranches()));
+      allow update: if isEditor() && validPerson() && !request.resource.data.keys().hasAny(['idNumber','phoneNumber','role','permissions','branchPermissions']) && (isAdmin() || myBranches().size()==0 || (resource.data.get('allTags', []).hasAny(myBranches()) || resource.data.get('tags', []).hasAny(myBranches())) && request.resource.data.get('tags', []).hasAny(myBranches()));
+      allow delete: if isAdmin();
+    }
+    match /familyPrivate/{id} { allow read, create, update: if isAdmin(); allow delete: if isAdmin(); }
+    match /contribStats/{uid} { allow read: if isViewer(); allow create, update: if signedIn() && request.auth.uid==uid && isViewer(); allow delete: if isAdmin(); }
+    match /exportTemplates/{id} { allow read, create, update: if isEditor(); allow delete: if isAdmin(); }
+    match /polls/{id} {
+      allow read: if isViewer(); allow create, update, delete: if isAdmin();
+      match /votes/{uid} {
+        allow read: if isViewer();
+        allow create, update: if isViewer() && request.auth.uid==uid && get(/databases/$(database)/documents/polls/$(id)).data.open == true && request.resource.data.choice is int;
+        allow delete: if isAdmin() || (isViewer() && request.auth.uid==uid);
+      }
+    }
+    match /funds/{id} {
+      allow read: if isViewer(); allow create, update, delete: if isAdmin();
+      match /pledges/{pid} {
+        allow create: if isViewer() && request.resource.data.uid==request.auth.uid && request.resource.data.amount is number && request.resource.data.amount > 0 && request.resource.data.status=='pending';
+        allow read: if isAdmin() || (signedIn() && resource.data.uid==request.auth.uid);
+        allow update, delete: if isAdmin();
+      }
+    }
+    match /meetings/{id} {
+      allow read: if isViewer(); allow create, update: if isEditor() && request.resource.data.title is string; allow delete: if isAdmin();
+      match /rsvp/{uid} { allow read: if isViewer(); allow create, update: if isViewer() && request.auth.uid==uid; allow delete: if isAdmin() || (signedIn() && request.auth.uid==uid); }
+    }
+    match /suggestions/{id} {
+      allow create: if isViewer() && request.resource.data.uid==request.auth.uid && request.resource.data.status=='new' && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() < 2000;
+      allow read: if isAdmin() || (signedIn() && resource.data.uid==request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+    match /familyDocs/{id} {
+      allow read: if isViewer() && (resource.data.minRole=='viewer' || isEditor());
+      allow create, update: if isEditor() && request.resource.data.title is string; allow delete: if isAdmin();
+    }
+    match /events/{id} { allow read: if canRead(); allow create,update: if isEditor() && request.resource.data.title is string && request.resource.data.title.size()>0; allow delete: if isAdmin(); }
+    match /familyMedia/{id} { allow read: if canRead(); allow create,update: if isEditor(); allow delete: if isAdmin(); }
+    match /familyStories/{id} { allow read: if canRead(); allow create,update: if isEditor(); allow delete: if isAdmin(); }
+    match /contributions/{id} { allow read: if isAdmin(); allow create: if isViewer(); allow update,delete: if isAdmin(); }
+    match /mukhtars/{id} { allow read: if canRead(); allow create,update: if isEditor(); allow delete: if isAdmin(); }
+    match /verificationRequests/{id} { allow read: if signedIn() && (request.auth.uid==id || isAdmin()); allow create: if signedIn() && request.auth.uid==id; allow update: if isAdmin(); }
+    match /loginLogs/{id} { allow create: if signedIn() && request.resource.data.uid==request.auth.uid; allow read: if isAdmin(); allow update,delete: if false; }
+    match /auditLogs/{id} { allow read: if isAdmin(); allow create: if isEditor(); allow update,delete: if false; }
+    match /shareLinks/{t} { allow get: if signedIn(); allow list: if isAdmin(); allow create: if isAdmin() || (isViewer() && request.resource.data.createdBy == request.auth.uid && request.resource.data.role == 'viewer' && request.resource.data.active == true); allow update: if isAdmin(); allow delete: if isAdmin(); }
+    match /linkSessions/{u} { allow read,delete: if signedIn() && request.auth.uid==u; allow create: if signedIn() && request.auth.uid==u; }
+    match /linkEvents/{id} { allow create: if signedIn() && request.resource.data.uid==request.auth.uid; allow read: if isAdmin(); }
+    match /settings/access { allow read: if signedIn(); allow write: if isAdmin(); }
+    match /settings/{id} { allow read: if isViewer(); allow write: if isAdmin(); }
+    match /{document=**} { allow read,write: if false; }
+  }
+}

@@ -1,0 +1,83 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0a1020"><title>الملف الشخصي</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+import { boot, h, $, members, avatar, nm, life, fmtD, toD, isF, fail, toast, confirmUI, rank, copyTracked, db, doc, collection, getDocs, writeBatch, arrayRemove, query, where, updateDoc, addDoc, serverTimestamp } from "./app.js";
+import { statusLabel, GENDER, ageOf, loadPrivate, mergePrivate, canEditPerson } from "./fx.js";
+const S = await boot();
+async function run() {
+  const id = new URLSearchParams(location.search).get("id"), all = mergePrivate(await members(), await loadPrivate(S)), main = $("main"), m = all.find((p) => p.id === id);
+  if (!m) { main.replaceChildren(h("div", "err", "الشخص غير موجود.")); return; }
+  const by = new Map(all.map((p) => [p.id, p])), father = by.get(m.fatherId), mother = by.get(m.motherId), spouses = (m.spouseIds || []).map((x) => by.get(x)).filter(Boolean);
+  const sibs = all.filter((x) => x.id !== id && ((m.fatherId && x.fatherId === m.fatherId) || (m.motherId && x.motherId === m.motherId)));
+  const kids = all.filter((x) => x.fatherId === id || x.motherId === id), ed = canEditPerson(S, m), contactOk = rank[S.role] >= 2;
+  let mk = []; try { mk = (await getDocs(collection(db, "mukhtars"))).docs.map((d) => d.data()).sort((a, b) => a.order - b.order); } catch (e) {}
+  document.title = nm(m); main.replaceChildren();
+  const hero = h("div", "panel"); hero.style.textAlign = "center"; hero.appendChild(avatar(m, "big")); hero.firstChild.style.margin = "0 auto 8px";
+  const t = h("h1", "", nm(m)); t.style.cssText = "margin:6px 0;color:#d4af37"; hero.appendChild(t);
+  hero.appendChild(h("div", "mut", [life(m), GENDER(m), ageOf(m) != null ? ageOf(m) + (m.isAlive === false ? " سنة عند الوفاة" : " سنة") : "", m.isAlive === false ? (isF(m) ? "رحمها الله" : "رحمه الله") : ""].filter(Boolean).join(" · ")));
+  if (m.isAlive === false) { hero.style.borderTop = "7px solid #111"; hero.firstChild.style.filter = "grayscale(1)"; const rb = h("div", "", "🖤 " + (isF(m) ? "رحمها الله وأسكنها فسيح جناته" : "رحمه الله وأسكنه فسيح جناته")); rb.style.cssText = "margin:10px auto 0;padding:8px 14px;border-radius:12px;background:#111;color:#fff;display:inline-block;font-weight:700"; hero.appendChild(rb); }
+  const tg = h("div"); tg.style.marginTop = "8px"; (m.allTags || m.tags || []).forEach((x) => tg.append(h("span", "chip" + ((m.tags || []).includes(x) ? " own" : ""), x), " ")); hero.appendChild(tg);
+  const mi = mk.findIndex((x) => x.personId === id);
+  if (mi >= 0) { const b = h("div", "panel"); b.style.cssText = "margin-top:10px;border-color:#d4af3788"; b.append(h("b", "", `⭐ المختار رقم ${mi + 1}`), h("div", "mut", "قبله: " + (mk[mi - 1]?.personName || "—") + " · بعده: " + (mk[mi + 1]?.personName || "—"))); hero.appendChild(b); }
+  const act = h("div", "row"); act.style.cssText = "justify-content:center;margin-top:12px";
+  const btn = (txt, fn, c = "") => { const e = h("button", "btn " + c, txt); e.onclick = fn; act.appendChild(e); return e; };
+  btn("🌳 في الشجرة", () => (location.href = "family_tree.html?root=" + id));
+  if (ed) btn("✏️ تعديل", () => (location.href = "add_edit_person.html?id=" + id), "gold");
+  if (!S.user.isAnonymous) btn("💡 اقتراح تصحيح", () => (location.href = "suggestions.html?person=" + id));
+  if (!S.user.isAnonymous) { btn("🔗 رابط متتبَّع", async () => { try { await copyTracked(S, "profile.html", "id=" + id); toast("نُسخ رابط صالح 7 أيام"); } catch (e) { toast("تعذّر النسخ"); } }); btn("🔐 تغيير كلمة المرور", async () => { try { const { sendPasswordResetEmail } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js"); await sendPasswordResetEmail(S.user.auth || S.user.email ? (await import("./lib.js")).auth : null, S.user.email); toast("تم إرسال رابط تغيير كلمة المرور إلى بريدك"); } catch (e) { toast("تعذر إرسال الرابط"); } }); }
+  if (S.role === "admin") btn("🗑 حذف", async () => {
+    if (!await confirmUI("حذف الشخص", "هل تريد حذف " + nm(m) + " نهائيًا؟", true)) return;
+    try {
+      const b = writeBatch(db); b.delete(doc(db, "familyMembers", id));
+      [m.fatherId, m.motherId].forEach((p) => by.has(p) && b.update(doc(db, "familyMembers", p), { childrenIds: arrayRemove(id) }));
+      spouses.forEach((s) => b.update(doc(db, "familyMembers", s.id), { spouseIds: arrayRemove(id) }));
+      kids.forEach((k) => b.update(doc(db, "familyMembers", k.id), k.fatherId === id ? { fatherId: null } : { motherId: null }));
+      await b.commit(); location.replace("index.html");
+    } catch (e) { fail(e); }
+  }, "red");
+  hero.appendChild(act); main.appendChild(hero);
+  const info = h("div", "panel"); info.appendChild(h("h2", "", "البيانات"));
+  const kv = (k, v, href) => { if (!v) return; const r = h("div", "kv"), s = h("span"); if (href) { const a = h("a", "", v); a.href = href; s.appendChild(a); } else s.textContent = v; r.append(h("span", "", k), s); info.appendChild(r); };
+  kv("تاريخ الميلاد", fmtD(m.birthDate)); kv("تاريخ الوفاة", m.isAlive === false ? fmtD(m.deathDate) : ""); kv("الحالة الاجتماعية", statusLabel(m)); kv("تاريخ الزواج", fmtD(m.marriageDate)); if (m.marriedOutside) kv("الزواج", isF(m) ? "متزوجة من خارج العائلة" : "متزوج من خارج العائلة");
+  if (m.displaced) { kv("النزوح", "نازح"); kv("مكان النزوح", m.displacedPlace); kv("المخيم", m.campName); } kv("السكن الأصلي", m.residence);
+  if (contactOk) { kv("الجوال", m.phoneNumber, "tel:" + m.phoneNumber); kv("رقم الهوية", m.idNumber); } kv("ملاحظات", m.notes); main.appendChild(info);
+  const sec = (title, arr, extra = []) => { if (!arr.length && !extra.length) return; const p = h("div", "panel"), r = h("div", "rels"); p.appendChild(h("h2", "", title)); arr.forEach((x) => { const a = h("a", "rel", nm(x)); a.href = "profile.html?id=" + x.id; r.appendChild(a); }); extra.forEach((x) => r.appendChild(h("span", "rel", x))); p.appendChild(r); main.appendChild(p); };
+  sec("الوالدان", [father, mother].filter(Boolean), !mother && m.motherName ? [m.motherName + " (غير مسجلة)"] : []);
+  sec("الزوج / الزوجة", spouses, m.manualSpouseNames || []); sec(`الإخوة والأخوات (${sibs.length})`, sibs); sec(`الأبناء (${kids.length})`, kids);
+  // الخط الزمني
+  const tl = [], dt = (x) => { const d = toD(x); return d && !isNaN(d) ? d : null; };
+  if (dt(m.birthDate)) tl.push([dt(m.birthDate), "🎂", isF(m) ? "وُلدت" : "وُلد"]);
+  if (dt(m.marriageDate)) tl.push([dt(m.marriageDate), "💍", "الزواج" + (m.marriedOutside ? " (من خارج العائلة)" : "")]);
+  kids.forEach((k) => dt(k.birthDate) && tl.push([dt(k.birthDate), "👶", "ولادة " + nm(k)]));
+  [[father, "الأب"], [mother, "الأم"]].forEach(([p, w]) => p && dt(p.deathDate) && p.isAlive === false && tl.push([dt(p.deathDate), "🕊️", "وفاة " + w + " " + nm(p)]));
+  spouses.forEach((s) => dt(s.deathDate) && s.isAlive === false && tl.push([dt(s.deathDate), "🕊️", "وفاة " + (isF(s) ? "الزوجة " : "الزوج ") + nm(s)]));
+  if (m.isAlive === false && dt(m.deathDate)) tl.push([dt(m.deathDate), "🖤", isF(m) ? "وفاتها" : "وفاته"]);
+  if (tl.length > 1) { tl.sort((a, b) => a[0] - b[0]); const p = h("div", "panel"); p.appendChild(h("h2", "", "⏳ الخط الزمني")); tl.forEach(([d, ic, tx]) => { const r = h("div", "kv"); r.append(h("span", "", ic + " " + d.toLocaleDateString("ar-EG", { year: "numeric", month: "long", day: "numeric" })), h("span", "", tx)); p.appendChild(r); }); main.appendChild(p); }
+  // سجل التعديلات (للمدير)
+  if (S.role === "admin") {
+    try {
+      const snap = await getDocs(query(collection(db, "auditLogs"), where("targetId", "==", id)));
+      const logs = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => x.type === "person-update" || x.type === "person-create").sort((a, b) => (b.at?.toMillis?.() || 0) - (a.at?.toMillis?.() || 0));
+      if (logs.length) {
+        const p = h("div", "panel"); p.appendChild(h("h2", "", "🕘 سجل التعديلات"));
+        const LBL = { firstName: "الاسم الأول", fatherName: "اسم الأب", grandFatherName: "اسم الجد", familyName: "العائلة", fullName: "الاسم الكامل", motherName: "اسم الأم", gender: "الجنس", birthDate: "الميلاد", isAlive: "على قيد الحياة", deathDate: "الوفاة", maritalStatus: "الحالة الاجتماعية", manualSpouseNames: "أزواج غير مسجلين", marriedOutside: "زواج خارجي", marriageDate: "تاريخ الزواج", displaced: "نازح", displacedPlace: "مكان النزوح", campName: "المخيم", residence: "السكن الأصلي", coords: "الإحداثيات", photoUrl: "الصورة", tags: "الفئات", notes: "ملاحظات" };
+        const show = (v) => (v == null || v === "" ? "—" : v.toDate ? v.toDate().toLocaleDateString("ar-EG") : Array.isArray(v) ? v.join("، ") : typeof v === "boolean" ? (v ? "نعم" : "لا") : String(v));
+        logs.slice(0, 15).forEach((x) => {
+          const r = h("div", "kv"), when = x.at?.toDate ? x.at.toDate().toLocaleString("ar-EG") : "—", left = h("span", "", when + " · " + (x.type === "person-create" ? "إضافة" : "تعديل: " + (x.changed || []).map((k) => LBL[k] || k).join("، ")));
+          const right = h("span");
+          if (x.type === "person-update" && x.before && Object.keys(x.before).length) {
+            const det = h("div", "mut small", (x.changed || []).map((k) => (LBL[k] || k) + ": " + show(x.before[k])).join(" | ")); right.appendChild(det);
+            const b = h("button", "btn", "↩ استرجاع القيم القديمة"); b.onclick = async () => {
+              if (!await confirmUI("استرجاع", "سيتم إرجاع الحقول: " + (x.changed || []).map((k) => LBL[k] || k).join("، ") + " إلى قيمها قبل هذا التعديل. لا يشمل الروابط العائلية.")) return;
+              try { const cur = {}; (x.changed || []).forEach((k) => (cur[k] = m[k] === undefined ? null : m[k])); await updateDoc(doc(db, "familyMembers", id), { ...x.before, updatedAt: serverTimestamp(), updatedBy: S.user.uid }); await addDoc(collection(db, "auditLogs"), { type: "person-update", targetId: id, name: nm(m), changed: x.changed, before: cur, restoredFrom: x.id, by: S.user.uid, at: serverTimestamp() }); toast("تم الاسترجاع ✓"); setTimeout(() => location.reload(), 600); } catch (e) { fail(e); }
+            }; right.appendChild(b);
+          }
+          r.append(left, right); p.appendChild(r);
+        });
+        main.appendChild(p);
+      }
+    } catch (e) { console.warn(e); }
+  }
+}
+run().catch(fail);
+</script></body></html>

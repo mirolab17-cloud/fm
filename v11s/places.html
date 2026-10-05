@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>أماكن العائلة</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, members, nm, fail, shellTitle } from "./family-pages.js";
+const S = await boot();
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const MODES = { displacedPlace: "مكان النزوح", campName: "المخيم / مركز الإيواء", residence: "السكن الأصلي" };
+const coords = (m) => { const x = String(m.coords || "").split(/[,،\s]+/).map(Number).filter((n) => !isNaN(n)); return x.length >= 2 && Math.abs(x[0]) <= 90 && Math.abs(x[1]) <= 180 ? [x[0], x[1]] : null; };
+async function run() {
+  const all = await members(), main = $("main");
+  main.innerHTML = shellTitle("أماكن العائلة", "أين يقيم أفراد العائلة: النزوح والمخيمات والسكن الأصلي، مع خريطة للمواقع المسجّلة.") + `<div class="panel"><div class="g"><div><label class="l">التجميع حسب</label><select id="mode">${Object.entries(MODES).map(([k, v]) => `<option value="${k}">${v}</option>`).join("")}</select></div><div><label class="l">&nbsp;</label><label class="chk"><input id="onlyD" type="checkbox"> النازحون فقط</label></div></div></div><div class="stats" id="st"></div><div id="mapBox" class="panel" hidden><h2>🗺️ الخريطة</h2><div id="map" style="height:380px;border-radius:14px;overflow:hidden"></div></div><div id="grid" class="place-grid"></div>`;
+  let map = null, layer = null;
+  async function drawMap(list) {
+    const pts = list.map((m) => ({ m, c: coords(m) })).filter((x) => x.c); $("#mapBox").hidden = !pts.length; if (!pts.length) return;
+    if (!window.L) { await new Promise((res, rej) => { const l = document.createElement("link"); l.rel = "stylesheet"; l.href = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"; document.head.appendChild(l); const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"; s.onload = res; s.onerror = () => rej(new Error("تعذر تحميل الخريطة")); document.head.appendChild(s); }).catch(() => { $("#mapBox").hidden = true; }); if (!window.L) return; }
+    if (!map) { map = L.map("map"); L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map); }
+    if (layer) layer.remove(); layer = L.layerGroup().addTo(map); const g = new Map(); pts.forEach((p) => { const k = p.c.map((n) => n.toFixed(3)).join(","); if (!g.has(k)) g.set(k, { c: p.c, l: [] }); g.get(k).l.push(p.m); });
+    const b = []; g.forEach((v) => { L.marker(v.c).addTo(layer).bindPopup("<b>" + v.l.length + " فرد</b><br>" + v.l.slice(0, 10).map((m) => esc(nm(m))).join("<br>") + (v.l.length > 10 ? "<br>…" : "")); b.push(v.c); }); map.fitBounds(b, { padding: [30, 30], maxZoom: 14 }); setTimeout(() => map.invalidateSize(), 200);
+  }
+  function draw() {
+    const k = $("#mode").value, list = all.filter((m) => !$("#onlyD").checked || m.displaced), g = new Map();
+    list.forEach((m) => { const v = (m[k] || "").trim(); if (v) { if (!g.has(v)) g.set(v, []); g.get(v).push(m); } });
+    const withP = list.filter((m) => (m[k] || "").trim()).length;
+    $("#st").replaceChildren(...[["👥", "الأفراد", list.length], ["🏕", "نازحون", all.filter((m) => m.displaced).length], ["📍", "أماكن مختلفة", g.size], ["❔", "بلا مكان مسجّل", list.length - withP]].map(([i, t, n]) => { const d = h("div", "stat"); d.append(h("b", "", n), h("span", "mut", i + " " + t)); return d; }));
+    const box = $("#grid"); box.replaceChildren();
+    if (!g.size) { box.append(h("div", "panel empty", "لا توجد بيانات لهذا التجميع. أضف مكان النزوح/المخيم من صفحة تعديل الشخص، أو دفعة واحدة من قائمة الأفراد (تحديد ثم «تعديل النزوح للمحدد»).")); }
+    [...g.entries()].sort((a, b) => b[1].length - a[1].length).forEach(([place, people]) => {
+      const c = h("article", "place-card"); c.innerHTML = `<div class="map-pin">📍</div><div><h2>${esc(place)}</h2><p>${people.length} فرد · أطفال: ${people.filter((m) => { const d = m.birthDate && m.birthDate.toDate ? m.birthDate.toDate() : null; return d && (Date.now() - d.getTime()) / 31557600000 < 18; }).length}</p></div><details><summary>عرض الأشخاص</summary><div class="mini-list"></div></details>`;
+      const l = c.querySelector(".mini-list"); people.slice(0, 40).forEach((m) => { const a = h("a", "mini-person", m.fullName || m.firstName); a.href = "profile.html?id=" + m.id; l.append(a); }); box.append(c);
+    });
+    drawMap(list);
+  }
+  $("#mode").onchange = draw; $("#onlyD").onchange = draw; draw();
+}
+run().catch(fail);
+
+</script></body></html>

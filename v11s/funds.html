@@ -1,0 +1,47 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>صندوق العائلة</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, fail, toast, confirmUI, db, doc, collection, getDocs, addDoc, updateDoc, deleteDoc, increment, query, where, serverTimestamp } from "./app.js";
+const S = await boot();
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+async function run() {
+  const main = $("main"), adm = S.role === "admin", me = (S.user.displayName || S.user.email || "عضو").split("@")[0];
+  main.innerHTML = `<div class="top"><div><span class="eyebrow">التكافل</span><h1>💰 صندوق العائلة</h1><p class="mut">حملات المساهمة: سجّل تعهدك، ويؤكد المدير الاستلام. المبالغ المؤكدة فقط تُحتسب في الشريط.</p></div></div>${adm ? `<div class="panel"><h2>حملة جديدة</h2><div class="g"><div><label class="l">اسم الحملة *</label><input id="t"></div><div><label class="l">المبلغ المستهدف *</label><input id="g" type="number" min="1"></div><div><label class="l">العملة</label><input id="c" value="₪"></div></div><label class="l" style="margin-top:8px">الوصف</label><textarea id="d" rows="2"></textarea><button class="btn gold" id="add" style="margin-top:8px">إنشاء الحملة</button></div>` : ""}<div id="list"></div>`;
+  async function load() {
+    const funds = (await getDocs(collection(db, "funds"))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    await Promise.all(funds.map(async (f) => { try { const base = collection(db, "funds", f.id, "pledges"); f.p = (await getDocs(adm ? base : query(base, where("uid", "==", S.user.uid)))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)); } catch (e) { f.p = []; } }));
+    const box = $("#list"); box.replaceChildren(); if (!funds.length) box.append(h("div", "panel empty", "لا توجد حملات بعد."));
+    funds.forEach((f) => {
+      const got = f.collected || 0, pc = f.target ? Math.min(100, Math.round((got / f.target) * 100)) : 0, cur = f.currency || "₪", el = h("div", "panel");
+      el.innerHTML = `<h2>${esc(f.title)} ${f.closed ? "🔒" : ""}</h2>${f.description ? `<p class="mut">${esc(f.description)}</p>` : ""}<div class="row" style="justify-content:space-between"><b>${got} ${esc(cur)} من ${f.target} ${esc(cur)}</b><b>${pc}%</b></div><div style="height:12px;background:#0002;border-radius:8px;overflow:hidden"><div style="height:100%;width:${pc}%;background:linear-gradient(90deg,#d4af37,#b8860b)"></div></div>`;
+      if (!f.closed) {
+        const r = h("div", "row"); r.style.marginTop = "10px"; const a = h("input"); a.type = "number"; a.min = "1"; a.placeholder = "مبلغ التعهد"; a.style.maxWidth = "150px"; const n = h("input"); n.placeholder = "ملاحظة (اختياري)"; n.style.flex = "1"; const b = h("button", "btn gold", "سجّل تعهدي");
+        b.onclick = async () => { try { const v = Number(a.value); if (!(v > 0)) return toast("اكتب مبلغًا صحيحًا"); await addDoc(collection(db, "funds", f.id, "pledges"), { uid: S.user.uid, name: me, amount: v, note: n.value.trim(), status: "pending", createdAt: serverTimestamp() }); toast("تم تسجيل تعهدك، بانتظار تأكيد المدير ✓"); load(); } catch (e) { fail(e); } };
+        r.append(a, n, b); el.append(r);
+      }
+      if (f.p.length) {
+        const w = h("details"); w.open = adm; w.innerHTML = `<summary>${adm ? "كل التعهدات" : "تعهداتي"} (${f.p.length})</summary>`;
+        f.p.forEach((p) => {
+          const row = h("div", "kv"), L = { pending: "⏳ بانتظار التأكيد", received: "✅ مستلم", rejected: "❌ مرفوض" }[p.status] || p.status;
+          row.append(h("span", "", (adm ? p.name + " — " : "") + p.amount + " " + cur + (p.note ? " · " + p.note : "")), h("span", "", L));
+          if (adm && p.status === "pending") {
+            const ok = h("button", "btn gold", "تأكيد الاستلام"), no = h("button", "btn red", "رفض");
+            ok.onclick = async () => { try { await updateDoc(doc(db, "funds", f.id, "pledges", p.id), { status: "received", at: serverTimestamp() }); await updateDoc(doc(db, "funds", f.id), { collected: increment(p.amount) }); load(); } catch (e) { fail(e); } };
+            no.onclick = async () => { try { await updateDoc(doc(db, "funds", f.id, "pledges", p.id), { status: "rejected" }); load(); } catch (e) { fail(e); } };
+            row.append(ok, no);
+          }
+          w.append(row);
+        });
+        el.append(w);
+      }
+      if (adm) { const r = h("div", "row"); r.style.marginTop = "8px"; const c = h("button", "btn", f.closed ? "🔓 فتح" : "🔒 إغلاق الحملة"); c.onclick = async () => { try { await updateDoc(doc(db, "funds", f.id), { closed: !f.closed }); load(); } catch (e) { fail(e); } }; const x = h("button", "btn red", "🗑 حذف"); x.onclick = async () => { if (!await confirmUI("حذف الحملة", "سيُحذف السجل الرئيسي للحملة.", true)) return; try { await deleteDoc(doc(db, "funds", f.id)); load(); } catch (e) { fail(e); } }; r.append(c, x); el.append(r); }
+      box.append(el);
+    });
+  }
+  if (adm) $("#add").onclick = async () => { try { const t = $("#t").value.trim(), g = Number($("#g").value); if (!t || !(g > 0)) return toast("الاسم والمبلغ المستهدف مطلوبان"); await addDoc(collection(db, "funds"), { title: t, target: g, currency: $("#c").value.trim() || "₪", description: $("#d").value.trim(), collected: 0, closed: false, createdBy: S.user.uid, createdAt: serverTimestamp() }); $("#t").value = $("#g").value = $("#d").value = ""; toast("تم الإنشاء ✓"); load(); } catch (e) { fail(e); } };
+  await load();
+}
+run().catch(fail);
+
+</script></body></html>

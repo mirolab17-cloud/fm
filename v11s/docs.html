@@ -1,0 +1,44 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#17233b"><title>مكتبة الوثائق</title><link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet"><link rel="stylesheet" href="app.css"><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><script src="pwa.js" defer></script></head>
+<body data-require="viewer"><main class="page"><div class="empty">جاري التحميل…</div></main>
+<script type="module">
+
+import { boot, h, $, members, picker, nm, fail, toast, confirmUI, db, app, doc, collection, getDocs, addDoc, deleteDoc, query, where, serverTimestamp, rank } from "./app.js";
+const S = await boot();
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const CATS = ["عقود وملكية", "شهادات ميلاد ووفاة", "هويات ووثائق رسمية", "صور قديمة", "قرارات وكتب عائلية", "أخرى"];
+async function run() {
+  const main = $("main"), ed = rank[S.role] >= 2, all = await members(), pk = picker(all), by = new Map(all.map((m) => [m.id, m]));
+  main.innerHTML = `<div class="top"><div><span class="eyebrow">الأرشيف</span><h1>📁 مكتبة الوثائق</h1><p class="mut">عقود وشهادات وصور وقرارات العائلة، مع التحكم بمن يراها.</p></div></div>${ed ? `<div class="panel"><h2>إضافة وثيقة</h2><div class="g"><div><label class="l">العنوان *</label><input id="t"></div><div><label class="l">التصنيف</label><select id="c">${CATS.map((c) => `<option>${c}</option>`).join("")}</select></div><div><label class="l">متعلقة بشخص (اختياري)</label><input id="p" list="${pk.dl.id}"></div><div><label class="l">من يراها؟</label><select id="r"><option value="viewer">كل الأعضاء</option><option value="editor">المحررون والمدير فقط</option></select></div><div><label class="l">رابط الوثيقة (أو ارفع ملفًا)</label><input id="u" type="url" dir="ltr" placeholder="https://…"></div><div><label class="l">رفع ملف (حتى 10 MB)</label><input id="f" type="file"></div></div><button class="btn gold" id="add" style="margin-top:8px">حفظ</button><p class="mut small">ملاحظة: الملفات المرفوعة تُحمَّل على Firebase Storage، ويلزم تفعيله ونشر storage.rules.</p></div>` : ""}<div class="panel"><div class="g"><select id="fc"><option value="">كل التصنيفات</option>${CATS.map((c) => `<option>${c}</option>`).join("")}</select><input id="fq" type="search" placeholder="بحث في العنوان…"></div></div><div id="list" class="grid"></div>`;
+  if (ed) main.appendChild(pk.dl);
+  let docs = [];
+  async function load() { const base = collection(db, "familyDocs"); docs = (await getDocs(ed ? base : query(base, where("minRole", "==", "viewer")))).docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0)); draw(); }
+  function draw() {
+    const c = $("#fc").value, q = $("#fq").value.trim().toLowerCase(), box = $("#list"); box.replaceChildren();
+    const r = docs.filter((d) => (!c || d.category === c) && (!q || (d.title || "").toLowerCase().includes(q)));
+    if (!r.length) box.append(h("div", "panel empty", "لا توجد وثائق."));
+    r.forEach((d) => {
+      const el = h("div", "panel"), p = by.get(d.personId);
+      el.innerHTML = `<h3>📄 ${esc(d.title)}</h3><div class="mut small">${esc(d.category || "")}${d.minRole === "editor" ? " · 🔒 للمحررين" : ""}</div>${p ? `<div><a href="profile.html?id=${p.id}">👤 ${esc(nm(p))}</a></div>` : ""}`;
+      const row = h("div", "row"), a = h("a", "btn gold", "فتح"); a.href = d.url; a.target = "_blank"; a.rel = "noopener"; row.append(a);
+      if (S.role === "admin") { const x = h("button", "btn red", "🗑"); x.onclick = async () => { if (!await confirmUI("حذف الوثيقة", "حذف «" + d.title + "»؟", true)) return; try { await deleteDoc(doc(db, "familyDocs", d.id)); load(); } catch (e) { fail(e); } }; row.append(x); }
+      el.append(row); box.append(el);
+    });
+  }
+  $("#fc").onchange = draw; $("#fq").oninput = draw;
+  if (ed) $("#add").onclick = async () => {
+    const btn = $("#add"); btn.disabled = true;
+    try {
+      const t = $("#t").value.trim(); if (!t) throw Error("العنوان مطلوب");
+      const pe = $("#p").value.trim() ? pk.get($("#p").value) : null; if ($("#p").value.trim() && !pe) throw Error("اختر الشخص من القائمة أو امسح الحقل");
+      let url = $("#u").value.trim(); const file = $("#f").files[0];
+      if (file) { if (file.size > 10 * 1024 * 1024) throw Error("الملف أكبر من 10 MB"); const { getStorage, ref, uploadBytes, getDownloadURL } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js"); const st = getStorage(app), r = ref(st, "docs/" + Date.now() + "-" + file.name.replace(/[^\w.\-]+/g, "_")); await uploadBytes(r, file); url = await getDownloadURL(r); }
+      if (!url) throw Error("أضف رابطًا أو ارفع ملفًا");
+      await addDoc(collection(db, "familyDocs"), { title: t, category: $("#c").value, personId: pe ? pe.id : null, minRole: $("#r").value, url, createdBy: S.user.uid, createdAt: serverTimestamp() });
+      $("#t").value = $("#u").value = $("#p").value = ""; $("#f").value = ""; toast("تمت الإضافة ✓"); load();
+    } catch (e) { e.code ? fail(e) : toast(e.message); } finally { btn.disabled = false; }
+  };
+  await load();
+}
+run().catch(fail);
+
+</script></body></html>
